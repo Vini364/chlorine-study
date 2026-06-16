@@ -1,0 +1,201 @@
+{
+  "selected_pipeline_model": {
+    "model_name": "Lasso Regression",
+    "train_original_r2": 0.9064057065763487,
+    "cv_r2_mean": 0.8803879856756602,
+    "cv_r2_std": 0.007051053361170945,
+    "holdout_r2": 0.913601598479128,
+    "train_original_rmse": 0.18412871121844165,
+    "holdout_rmse": 0.16651470112176023,
+    "train_original_mae": 0.13653606741885793,
+    "holdout_mae": 0.12060402901632514,
+    "overfit_severity": "mild",
+    "train_minus_holdout_r2": -0.007195891902779361,
+    "holdout_to_train_rmse_ratio": 0.9043386010789757,
+    "holdout_to_train_mae_ratio": 0.8833126022763103
+  },
+  "mobile_model": {
+    "model_name": "Mobile Lasso Regression",
+    "train_r2": 0.9353140659164735,
+    "test_r2": 0.9582110911561175,
+    "train_rmse": 0.15511158085539353,
+    "test_rmse": 0.11656230324230438,
+    "train_mae": 0.11695933230673895,
+    "test_mae": 0.0880790276081787
+  },
+  "candidate_models": [
+    {
+      "model_name": "Lasso Regression",
+      "best_params": {
+        "model__alpha": 0.0005
+      },
+      "cv_r2_mean": 0.8803879856756602,
+      "cv_r2_std": 0.007051053361170945,
+      "train_original_metrics": {
+        "r2": 0.9064057065763487,
+        "rmse": 0.18412871121844165,
+        "mae": 0.13653606741885793
+      },
+      "holdout_metrics": {
+        "r2": 0.913601598479128,
+        "rmse": 0.16651470112176023,
+        "mae": 0.12060402901632514
+      },
+      "gap_summary": {
+        "train_minus_holdout_r2": -0.007195891902779361,
+        "holdout_to_train_rmse_ratio": 0.9043386010789757,
+        "holdout_to_train_mae_ratio": 0.8833126022763103
+      },
+      "overfit_severity": "mild"
+    },
+    {
+      "model_name": "Ridge Regression",
+      "best_params": {
+        "model__alpha": 1.0
+      },
+      "cv_r2_mean": 0.8816343398609684,
+      "cv_r2_std": 0.007327988799821026,
+      "train_original_metrics": {
+        "r2": 0.907608858518381,
+        "rmse": 0.18294139852307487,
+        "mae": 0.13432103844564386
+      },
+      "holdout_metrics": {
+        "r2": 0.9144507014988617,
+        "rmse": 0.16569444731564364,
+        "mae": 0.11979581296530668
+      },
+      "gap_summary": {
+        "train_minus_holdout_r2": -0.006841842980480628,
+        "holdout_to_train_rmse_ratio": 0.9057241753552254,
+        "holdout_to_train_mae_ratio": 0.8918618732521552
+      },
+      "overfit_severity": "mild"
+    },
+    {
+      "model_name": "ElasticNet Regression",
+      "best_params": {
+        "model__alpha": 0.001,
+        "model__l1_ratio": 0.1
+      },
+      "cv_r2_mean": 0.8815890703088793,
+      "cv_r2_std": 0.007342584537046457,
+      "train_original_metrics": {
+        "r2": 0.9073565946325401,
+        "rmse": 0.18319097899541278,
+        "mae": 0.13494210588780026
+      },
+      "holdout_metrics": {
+        "r2": 0.9138663236879565,
+        "rmse": 0.16625940440380207,
+        "mae": 0.12043017460753194
+      },
+      "gap_summary": {
+        "train_minus_holdout_r2": -0.006509729055416358,
+        "holdout_to_train_rmse_ratio": 0.9075741901459313,
+        "holdout_to_train_mae_ratio": 0.8924580939003984
+      },
+      "overfit_severity": "mild"
+    },
+    {
+      "model_name": "Gradient Boosting Regression",
+      "best_params": {
+        "model__learning_rate": 0.1,
+        "model__max_depth": 3,
+        "model__n_estimators": 200
+      },
+      "cv_r2_mean": 0.9458791491827631,
+      "cv_r2_std": 0.010758825466060405,
+      "train_original_metrics": {
+        "r2": 0.9960931166299407,
+        "rmse": 0.03761941620841151,
+        "mae": 0.027440250291375923
+      },
+      "holdout_metrics": {
+        "r2": 0.9635354171328072,
+        "rmse": 0.10817710463309775,
+        "mae": 0.06817415701094537
+      },
+      "gap_summary": {
+        "train_minus_holdout_r2": 0.0325576994971335,
+        "holdout_to_train_rmse_ratio": 2.8755657459912918,
+        "holdout_to_train_mae_ratio": 2.4844582788798952
+      },
+      "overfit_severity": "moderate"
+    },
+    {
+      "model_name": "Random Forest Regression",
+      "best_params": {
+        "model__max_depth": null,
+        "model__min_samples_leaf": 1,
+        "model__n_estimators": 400
+      },
+      "cv_r2_mean": 0.9482529940765,
+      "cv_r2_std": 0.010733544776153157,
+      "train_original_metrics": {
+        "r2": 0.9988069086128921,
+        "rmse": 0.02078900404138442,
+        "mae": 0.011807152588555768
+      },
+      "holdout_metrics": {
+        "r2": 0.9722761107464991,
+        "rmse": 0.09432499830748273,
+        "mae": 0.0513638586956527
+      },
+      "gap_summary": {
+        "train_minus_holdout_r2": 0.026530797866393008,
+        "holdout_to_train_rmse_ratio": 4.537254315777278,
+        "holdout_to_train_mae_ratio": 4.350232480728484
+      },
+      "overfit_severity": "severe"
+    }
+  ]
+}
+
+
+
+
+
+
+New Models: 
+
+Tuning SVR...
+  Best params: {'model__C': 10.0, 'model__epsilon': 0.01, 'model__kernel': 'rbf'}
+  CV R²: 0.9336
+  Train-original R²: 0.9882
+  Holdout R²: 0.9594
+  Holdout RMSE: 0.1142
+  Holdout MAE: 0.0756
+  Train-holdout R² gap: 0.0288
+  Overfitting severity: mild
+
+Tuning Extra Trees Regression...
+  Best params: {'model__max_depth': None, 'model__min_samples_leaf': 2, 'model__n_estimators': 400}
+  CV R²: 0.9579
+  Train-original R²: 0.9999
+  Holdout R²: 0.9770
+  Holdout RMSE: 0.0859
+  Holdout MAE: 0.0424
+  Train-holdout R² gap: 0.0229
+  Overfitting severity: severe
+
+Tuning XGBoost Regression...
+  Best params: {'model__learning_rate': 0.1, 'model__max_depth': 5, 'model__n_estimators': 200, 'model__subsample': 0.8}
+  CV R²: 0.9420
+  Train-original R²: 0.9999
+  Holdout R²: 0.9773
+  Holdout RMSE: 0.0853
+  Holdout MAE: 0.0503
+  Train-holdout R² gap: 0.0225
+  Overfitting severity: severe
+
+
+Tuning LGBM Regressor: 
+ Best params: {'model__learning_rate': 0.1, 'model__max_depth': -1, 'model__n_estimators': 200, 'model__num_leaves': 31}
+  CV R²: 0.9456
+  Train-original R²: 0.9999
+  Holdout R²: 0.9716
+  Holdout RMSE: 0.0955
+  Holdout MAE: 0.0550
+  Train-holdout R² gap: 0.0283
+  Overfitting severity: severe

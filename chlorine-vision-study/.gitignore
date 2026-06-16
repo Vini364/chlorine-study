@@ -1,0 +1,31 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local app/runtime artifacts
+.DS_Store
+mobile/.expo/
+mobile/node_modules/
+
+# Generated training intermediates
+training/augmented_image_data.json
+training/features_data.csv
+training/phone_holdout_dataset.json
+
+# Generated charts outside poster_assets
+model_comparison.png
+
+# Local dataset payload
+training/new_dataset.json

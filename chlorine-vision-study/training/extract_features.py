@@ -6,7 +6,11 @@ from skimage.feature import graycomatrix, graycoprops
 import base64
 from io import BytesIO
 from PIL import Image
+from ultralytics import YOLO
 
+
+# Add the 'r' right here 
+yolo_model = YOLO(r'C:\Users\vu45\Desktop\Research\chlorine-study\chlorine-vision-study\training\best.pt')
 # --------------------------
 # Decode base64 image
 # --------------------------
@@ -99,7 +103,7 @@ def crop_test_tube_region(rgb_uint8):
             x_pad=0.28,
             y_pad=0.30,
         )
-        return rgb_uint8[y0:y1, x0:x1]
+        return rgb_uint8[y0:y1, x0:x1], pink_mask
 
     fallback = rgb_uint8[search_y0:search_y1, search_x0:search_x1]
     gray = cv2.cvtColor(fallback, cv2.COLOR_RGB2GRAY)
@@ -143,13 +147,13 @@ def crop_test_tube_region(rgb_uint8):
             x_pad=0.14,
             y_pad=0.12,
         )
-        return rgb_uint8[y0:y1, x0:x1]
+        return rgb_uint8[y0:y1, x0:x1], pink_mask
 
     fallback_x0 = int(width * 0.28)
     fallback_x1 = int(width * 0.72)
     fallback_y0 = int(height * 0.30)
     fallback_y1 = int(height * 0.76)
-    return rgb_uint8[fallback_y0:fallback_y1, fallback_x0:fallback_x1]
+    return rgb_uint8[fallback_y0:fallback_y1, fallback_x0:fallback_x1], pink_mask
 
 # --------------------------
 # Haralick features
@@ -173,9 +177,16 @@ def extract_haralick_features(rgb_uint8):
 # --------------------------
 def extract_features(image_base64):
     rgb_uint8 = decode_image(image_base64)
-    rgb_uint8 = crop_test_tube_region(rgb_uint8)
-    rgb_float = rgb_uint8.astype(np.float32)
-    R, G, B = rgb_float[:,:,0], rgb_float[:,:,1], rgb_float[:,:,2]
+    results = yolo_model(rgb_uint8, verbose = False)[0]
+    if results.masks is None:
+        print("Warning, Yolo missed a test tube here.")
+        binary_mask = np.ones((rgb_uint8.shape[0], rgb_uint8.shape[1]), dtype = np.uint8)
+    else: 
+        mask = results.masks.data[0].cpu().numpy()
+        mask = cv2.resize(mask, (results.orig_shape[1], results.orig_shape[0]))
+        binary_mask = (mask > 0.5).astype(np.uint8)
+    rgb_float = rgb_uint8[binary_mask == 1].astype(np.float32)
+    R, G, B = rgb_float[:,0], rgb_float[:,1], rgb_float[:,2]
 
     features = {}
     features['mean_R'], features['mean_G'], features['mean_B'] = np.mean(R), np.mean(G), np.mean(B)
@@ -191,13 +202,29 @@ def extract_features(image_base64):
     features['diff_R_B'] = features['mean_R']-features['mean_B']
     features['diff_G_B'] = features['mean_G']-features['mean_B']
 
-    hsv = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2HSV)
-    features['mean_H'], features['mean_S'], features['mean_V'] = np.mean(hsv[:,:,0]), np.mean(hsv[:,:,1]), np.mean(hsv[:,:,2])
-    features['std_H'], features['std_S'], features['std_V'] = np.std(hsv[:,:,0]), np.std(hsv[:,:,1]), np.std(hsv[:,:,2])
+    # hsv = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2HSV)
+    # features['mean_H'], features['mean_S'], features['mean_V'] = np.mean(hsv[:,:,0]), np.mean(hsv[:,:,1]), np.mean(hsv[:,:,2])
+    # features['std_H'], features['std_S'], features['std_V'] = np.std(hsv[:,:,0]), np.std(hsv[:,:,1]), np.std(hsv[:,:,2])
 
-    lab = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2LAB)
-    features['mean_L'], features['mean_A'], features['mean_B_lab'] = np.mean(lab[:,:,0]), np.mean(lab[:,:,1]), np.mean(lab[:,:,2])
-    features['std_L'], features['std_A'], features['std_B_lab'] = np.std(lab[:,:,0]), np.std(lab[:,:,1]), np.std(lab[:,:,2])
+    # lab = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2LAB)
+    # features['mean_L'], features['mean_A'], features['mean_B_lab'] = np.mean(lab[:,:,0]), np.mean(lab[:,:,1]), np.mean(lab[:,:,2])
+    # features['std_L'], features['std_A'], features['std_B_lab'] = np.std(lab[:,:,0]), np.std(lab[:,:,1]), np.std(lab[:,:,2])
+    
+    #For the neural net way:
+    hsv_full = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2HSV)
+    lab_full = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2LAB)
+        
+    hsv_pixels = hsv_full[binary_mask == 1].astype(np.float32)
+    H, S, V = hsv_pixels[:, 0], hsv_pixels[:, 1], hsv_pixels[:, 2]
+
+    lab_pixels = lab_full[binary_mask == 1].astype(np.float32)
+    L, A, B_lab = lab_pixels[:, 0], lab_pixels[:, 1], lab_pixels[:, 2]
+
+    features['mean_H'], features['mean_S'], features['mean_V'] = np.mean(H), np.mean(S), np.mean(V)
+    features['std_H'], features['std_S'], features['std_V'] = np.std(H), np.std(S), np.std(V)
+
+    features['mean_L'], features['mean_A'], features['mean_B_lab'] = np.mean(L), np.mean(A), np.mean(B_lab)
+    features['std_L'], features['std_A'], features['std_B_lab'] = np.std(L), np.std(A), np.std(B_lab)
 
     features['brightness'] = np.mean(rgb_float)
     gray_est = (features['mean_R']+features['mean_G']+features['mean_B'])/3.0
@@ -206,7 +233,16 @@ def extract_features(image_base64):
     )
     features['dominant_channel'] = int(np.argmax([features['mean_R'], features['mean_G'], features['mean_B']]))
 
-    features.update(extract_haralick_features(rgb_uint8))
+    # features.update(extract_haralick_features(rgb_uint8))
+
+    if results.masks is not None and len(results.boxes) > 0:
+        box = results.boxes.data[0].cpu().numpy()
+        x1, y1, x2, y2 = map(int, box[:4])
+        roi_crop = rgb_uint8[y1:y2, x1:x2]
+        features.update(extract_haralick_features(roi_crop))
+    else:
+        # Emergency backup if YOLO misses
+        features.update(extract_haralick_features(rgb_uint8))
     return features
 
 # --------------------------
@@ -250,3 +286,19 @@ def process_augmented_data(input_json, output_csv):
 # --------------------------
 if __name__ == "__main__":
     process_augmented_data("augmented_image_data.json", "features_data.csv")
+
+# def normalize_features(rgb):
+#     rgb = rgb.astype(np.float32)
+#     mask = np.percentile(rgb, 95, axis =(0,1))
+
+#     mean_r = np.mean(rgb[:, :, 0][rgb[:, :, 0] < mask[0]])   
+#     mean_g = np.mean(rgb[:, :, 1][rgb[:, :, 1] < mask[1]])
+#     mean_b = np.mean(rgb[:, :, 2][rgb[:, :, 2] < mask[2]])
+#     mean_gray = (mean_r + mean_g + mean_b)/3.0
+
+#     rgb[:, :, 0] *= mean_gray / (mean_r + 1e-6)
+#     rgb[:, :, 1] *= mean_gray / (mean_g + 1e-6)
+#     rgb[:, :, 2] *= mean_gray / (mean_b + 1e-6)
+
+
+#     return np.clip(rgb, 0, 255).astype(np.uint8)

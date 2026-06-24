@@ -1,0 +1,54 @@
+# ======================================================================
+# GLOBAL AND SYSTEM IGNORES
+# ======================================================================
+# Python cache
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+**/venv/
+**/env/
+**/ENV/
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# ======================================================================
+# SUB-PROJECT: MOBILE APP ARTIFCATS
+# ======================================================================
+chlorine-vision-study/mobile/.expo/
+chlorine-vision-study/mobile/node_modules/
+
+# ======================================================================
+# SUB-PROJECT: ML TRAINING DATA & ARTIFACTS
+# ======================================================================
+# Models and weights
+chlorine-vision-study/training/saved_artifacts/
+chlorine-vision-study/training/best.pt
+
+# Generated intermediate evaluation charts
+chlorine-vision-study/model_comparison.png
+
+# Generated training pipeline JSONs / CSVs
+chlorine-vision-study/training/augmented_image_data.json
+chlorine-vision-study/training/features_data.csv
+chlorine-vision-study/training/phone_holdout_dataset.json
+chlorine-vision-study/training/candidate_results.json
+chlorine-vision-study/training/model_metadata.json
+
+# Local raw datasets & image payloads (including HEIC files)
+chlorine-vision-study/training/new_dataset.json
+chlorine-vision-study/training/JulianiaVineshData.json
+chlorine-vision-study/training/combined_dataset.json
+chlorine-vision-study/training/dataset/
+chlorine-vision-study/training/CombinedDataset/
+chlorine-vision-study/training/AimanSanskritisDataset/
+chlorine-vision-study/training/drive-download-*/
+
+# Catch-all rule for all raw image uploads inside training folders
+chlorine-vision-study/training/**/*.HEIC

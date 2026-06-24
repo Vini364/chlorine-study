@@ -43,8 +43,8 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(TRAINING_DIR, "new_dataset.json"),
-        os.path.join(TRAINING_DIR, "processed_image_data.json"),
+        os.path.join(TRAINING_DIR, "combined_dataset.json"),
+        os.path.join(TRAINING_DIR, "combined_dataset.json"),
     ]
 
     for path in candidates:
@@ -256,7 +256,7 @@ def train_candidates(
         search.fit(X_train, y_train, groups=train_groups)
         feature_importance = permutation_importance(search.best_estimator_, X_holdout, y_holdout, n_repeats = 5, random_state = 42)
         importance_df = pd.DataFrame({
-            'Feature': feature_columns.columns,
+            'Feature': feature_columns,
             'Importance_Mean': feature_importance.importances_mean,
             'Importance_Std': feature_importance.importances_std
         }).sort_values(by='Importance_Mean', ascending=False)
@@ -268,7 +268,7 @@ def train_candidates(
         gap_summary = compute_gap_summary(train_original_metrics, holdout_metrics)
         overfit_severity = classify_overfit_gap(train_original_metrics, holdout_metrics)
 
-        for idx, row in importance_df.head().iterarows(5):
+        for idx, row in importance_df.head(5).iterrows():
             print(f"{row['Feature']} : {row['Importance_Mean']:.4f}")
 
         print(f"  Best params: {search.best_params_}")

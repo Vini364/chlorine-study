@@ -182,6 +182,7 @@ def extract_haralick_features(rgb_uint8):
 # --------------------------
 def extract_features(image_base64, filename = None):
     rgb_uint8 = decode_image(image_base64)
+    features = {}
     results = yolo_model(rgb_uint8, verbose = False)[0]
     if results.masks is None:
         print("Warning, Yolo missed a test tube here.")
@@ -192,20 +193,65 @@ def extract_features(image_base64, filename = None):
         binary_mask = (mask > 0.5).astype(np.uint8)
     
     y_indices, x_indices = np.where(binary_mask ==1)
-    if len(y_indices) >0:
+    if len(y_indices) > 0 and results.masks is not None:
         ymin, ymax = np.min(y_indices), np.max(y_indices)
         mask_height = ymax -  ymin
-        shave_top = int(ymin + 0.35*mask_height)
-        shave_bottom = int(ymax - 0.18*mask_height)
-        binary_mask[ymin:shave_top, :] = 0
-        binary_mask[shave_bottom:ymax,:] = 0
+        shave_top = int(ymin + 0.1*mask_height)
+        shave_bottom = int(ymax - 0.08*mask_height)
+        # binary_mask[ymin:shave_top, :] = 0
+        # binary_mask[shave_bottom:ymax,:] = 0
 
-        # xmin, xmax = np.min(x_indices), np.max(x_indices)
-        # mask_width = xmax - xmin
+        xmin, xmax = np.min(x_indices), np.max(x_indices)
+        mask_width = xmax - xmin
+        shave_left = int(xmin + 0.05*mask_width)
+        shave_right = int(xmax - 0.05*mask_width)
+        # binary_mask[:, xmin:shave_left] = 0
+        # binary_mask[:, shave_right:xmax] = 0
+        yolo_roi = rgb_uint8[shave_top:shave_bottom, shave_left:shave_right]
+
+        hsv_roi = cv2.cvtColor(yolo_roi, cv2.COLOR_RGB2HSV)
+        lab_roi = cv2.cvtColor(yolo_roi, cv2.COLOR_RGB2LAB)
+        
+        a_channel = lab_roi[:, :, 1]
+        hue = hsv_roi[:, :, 0]
+        saturation = hsv_roi[:, :, 1]
+        value = hsv_roi[:, :, 2]
+        
+        pink_threshold = max(138, int(np.percentile(a_channel, 78)))
+        cv_pink_mask = (
+            ((hue >= 150) | (hue <= 8)) &
+            (a_channel >= pink_threshold) &
+            (saturation >= 18) &
+            (value <= 250)
+        ).astype(np.uint8)
+        
+        cv_pink_mask = cv2.morphologyEx(
+            cv_pink_mask,
+            cv2.MORPH_CLOSE,
+            np.ones((5, 5), np.uint8),
+            iterations=1,
+        )
+        total_roi_pixels = cv_pink_mask.shape[0] * cv_pink_mask.shape[1]
+        pixel_count = np.count_nonzero(cv_pink_mask)
+        
+        pink_area_ratio = pixel_count / total_roi_pixels
+        
+        #ADDING PINK AREA RATIO AS A FEATURE
+        features['pink_area_ratio'] = pink_area_ratio
+        if pixel_count < 150:
+            binary_mask.fill(0)
+            binary_mask[shave_top: shave_bottom, shave_left: shave_right] = 1
+        else:
+            binary_mask.fill(0) 
+            h_roi, w_roi = cv_pink_mask.shape[:2]
+            binary_mask[shave_top:shave_top + h_roi, shave_left:shave_left + w_roi] = cv_pink_mask
+    else:
+        print("YOLO MISSED AN IMAGE")
+        pass
+
     rgb_float = rgb_uint8[binary_mask == 1].astype(np.float32)
     R, G, B = rgb_float[:,0], rgb_float[:,1], rgb_float[:,2]
 
-    features = {}
     features['mean_R'], features['mean_G'], features['mean_B'] = np.mean(R), np.mean(G), np.mean(B)
     features['std_R'], features['std_G'], features['std_B'] = np.std(R), np.std(G), np.std(B)
     total = features['mean_R'] + features['mean_G'] + features['mean_B']

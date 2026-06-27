@@ -43,8 +43,8 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
-        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
+        os.path.join(TRAINING_DIR, "combined_dataset.json"),
+        os.path.join(TRAINING_DIR, "combined_dataset.json"),
     ]
 
     for path in candidates:
@@ -345,6 +345,8 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
         test_size=0.2,
         random_state=random_state,
     )
+    # train_originals = original_records
+    # holdout_originals = original_records
     print(f"Original images: {len(original_records)}")
     print(f"Training originals: {len(train_originals)}")
     print(f"Untouched holdout originals: {len(holdout_originals)}")

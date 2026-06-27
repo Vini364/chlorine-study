@@ -7,10 +7,15 @@ import base64
 from io import BytesIO
 from PIL import Image
 from ultralytics import YOLO
-
+import os
 
 # Add the 'r' right here 
 yolo_model = YOLO(r'C:\Users\vu45\Desktop\Research\chlorine-study\chlorine-vision-study\training\best.pt')
+# output_dir = "extracted_rois"
+# os.makedirs(output_dir, exist_ok=True)
+
+
+
 # --------------------------
 # Decode base64 image
 # --------------------------
@@ -175,7 +180,7 @@ def extract_haralick_features(rgb_uint8):
 # --------------------------
 # Full features
 # --------------------------
-def extract_features(image_base64):
+def extract_features(image_base64, filename = None):
     rgb_uint8 = decode_image(image_base64)
     results = yolo_model(rgb_uint8, verbose = False)[0]
     if results.masks is None:
@@ -185,6 +190,18 @@ def extract_features(image_base64):
         mask = results.masks.data[0].cpu().numpy()
         mask = cv2.resize(mask, (results.orig_shape[1], results.orig_shape[0]))
         binary_mask = (mask > 0.5).astype(np.uint8)
+    
+    y_indices, x_indices = np.where(binary_mask ==1)
+    if len(y_indices) >0:
+        ymin, ymax = np.min(y_indices), np.max(y_indices)
+        mask_height = ymax -  ymin
+        shave_top = int(ymin + 0.35*mask_height)
+        shave_bottom = int(ymax - 0.18*mask_height)
+        binary_mask[ymin:shave_top, :] = 0
+        binary_mask[shave_bottom:ymax,:] = 0
+
+        # xmin, xmax = np.min(x_indices), np.max(x_indices)
+        # mask_width = xmax - xmin
     rgb_float = rgb_uint8[binary_mask == 1].astype(np.float32)
     R, G, B = rgb_float[:,0], rgb_float[:,1], rgb_float[:,2]
 
@@ -239,6 +256,10 @@ def extract_features(image_base64):
         box = results.boxes.data[0].cpu().numpy()
         x1, y1, x2, y2 = map(int, box[:4])
         roi_crop = rgb_uint8[y1:y2, x1:x2]
+        # if filename:
+        #     roi_bgr = cv2.cvtColor(roi_crop, cv2.COLOR_RGB2BGR)
+        #     save_name = f"roi_{os.path.splitext(filename)[0]}.jpg"
+        #     cv2.imwrite(os.path.join(output_dir, save_name), roi_bgr)
         features.update(extract_haralick_features(roi_crop))
     else:
         # Emergency backup if YOLO misses
@@ -252,14 +273,15 @@ def process_dataset_records(data, output_csv=None):
     """Extract features from an in-memory dataset of image records."""
     print(f"Loaded {len(data)} images. Extracting features...")
     rows = []
-
+    
+    
     for idx, item in enumerate(data):
         if (idx + 1) % 25 == 0:
             print(f"Processed {idx + 1}/{len(data)} images")
 
         image_base64 = item['image']
         concentration = float(item['concentration'])
-        features = extract_features(image_base64)
+        features = extract_features(image_base64, filename = item.get('filename'))
         features['concentration'] = concentration
         features['is_augmented'] = item.get('is_augmented', False)
         features['source_id'] = item.get('source_id')
@@ -285,7 +307,7 @@ def process_augmented_data(input_json, output_csv):
 # Main
 # --------------------------
 if __name__ == "__main__":
-    process_augmented_data("augmented_image_data.json", "features_data.csv")
+    process_augmented_data("AimanSanskritiData.json", "features_data.csv")
 
 # def normalize_features(rgb):
 #     rgb = rgb.astype(np.float32)

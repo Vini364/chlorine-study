@@ -43,8 +43,8 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(TRAINING_DIR, "combined_dataset.json"),
-        os.path.join(TRAINING_DIR, "combined_dataset.json"),
+        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
+        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
     ]
 
     for path in candidates:
@@ -152,37 +152,37 @@ def compute_gap_summary(train_metrics, holdout_metrics):
 
 def get_model_search_space(random_state=42):
     return {
-        # "Ridge Regression": (
-        #     Ridge(),
-        #     {"alpha": [0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 100.0]},
-        # ),
-        # "Lasso Regression": (
-        #     Lasso(max_iter=20000),
-        #     {"alpha": [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2]},
-        # ),
-        # "ElasticNet Regression": (
-        #     ElasticNet(max_iter=20000),
-        #     {
-        #         "alpha": [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2],
-        #         "l1_ratio": [0.1, 0.3, 0.5, 0.7, 0.9],
-        #     },
-        # ),
-        # "Random Forest Regression": (
-        #     RandomForestRegressor(random_state=random_state),
-        #     {
-        #         "n_estimators": [200, 400],
-        #         "max_depth": [None, 6, 10],
-        #         "min_samples_leaf": [1, 2, 4],
-        #     },
-        # ),
-        # "Gradient Boosting Regression": (
-        #     GradientBoostingRegressor(random_state=random_state),
-        #     {
-        #         "n_estimators": [100, 200],
-        #         "learning_rate": [0.03, 0.05, 0.1],
-        #         "max_depth": [2, 3],
-        #     },
-        # ),
+        "Ridge Regression": (
+            Ridge(),
+            {"alpha": [0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 100.0]},
+        ),
+        "Lasso Regression": (
+            Lasso(max_iter=20000),
+            {"alpha": [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2]},
+        ),
+        "ElasticNet Regression": (
+            ElasticNet(max_iter=20000),
+            {
+                "alpha": [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2],
+                "l1_ratio": [0.1, 0.3, 0.5, 0.7, 0.9],
+            },
+        ),
+        "Random Forest Regression": (
+            RandomForestRegressor(random_state=random_state),
+            {
+                "n_estimators": [200, 400],
+                "max_depth": [None, 6, 10],
+                "min_samples_leaf": [1, 2, 4],
+            },
+        ),
+        "Gradient Boosting Regression": (
+            GradientBoostingRegressor(random_state=random_state),
+            {
+                "n_estimators": [100, 200],
+                "learning_rate": [0.03, 0.05, 0.1],
+                "max_depth": [2, 3],
+            },
+        ),
         "SVR": (
             SVR(),
             {
@@ -191,23 +191,23 @@ def get_model_search_space(random_state=42):
                 "kernel": ["rbf", "linear"],
             },
         ),
-        # "Extra Trees Regression": (
-        #     ExtraTreesRegressor(random_state=random_state),
-        #     {
-        #         "n_estimators": [200, 400],
-        #         "max_depth": [None, 6, 10],
-        #         "min_samples_leaf": [1, 2, 4],
-        #     },
-        # ),
-        # "XGBoost Regression": (
-        #     XGBRegressor(random_state=random_state, verbosity=0),
-        #     {
-        #         "n_estimators": [100, 200],
-        #         "learning_rate": [0.03, 0.05, 0.1],
-        #         "max_depth": [3, 5],
-        #         "subsample": [0.8, 1.0],
-        #     },
-        # ),
+        "Extra Trees Regression": (
+            ExtraTreesRegressor(random_state=random_state),
+            {
+                "n_estimators": [200, 400],
+                "max_depth": [None, 6, 10],
+                "min_samples_leaf": [1, 2, 4],
+            },
+        ),
+        "XGBoost Regression": (
+            XGBRegressor(random_state=random_state, verbosity=0),
+            {
+                "n_estimators": [100, 200],
+                "learning_rate": [0.03, 0.05, 0.1],
+                "max_depth": [3, 5],
+                "subsample": [0.8, 1.0],
+            },
+        ),
         # "LightGBM Regression": (
         #     LGBMRegressor(random_state=random_state, verbosity=-1),
         #     {
@@ -301,6 +301,11 @@ def train_candidates(
             item["holdout_metrics"]["rmse"],
         ),
     )
+ 
+    for candidate in results:
+        raw_estimator = candidate['best_estimator']
+        raw_model = raw_estimator.named_steps["model"]
+        joblib.dump(raw_model, os.path.join(ARTIFACTS_DIR, f"{candidate['model_name'].lower().replace(' ', '_')}.pkl"))
     return results
 
 

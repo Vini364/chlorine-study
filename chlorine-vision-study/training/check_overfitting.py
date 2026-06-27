@@ -36,21 +36,35 @@ def compute_metrics(y_true, y_pred):
 
 
 def classify_gap(train_metrics, holdout_metrics):
-    r2_gap = train_metrics["r2"] - holdout_metrics["r2"]
-    rmse_ratio = holdout_metrics["rmse"] / max(train_metrics["rmse"], 1e-9)
-    mae_ratio = holdout_metrics["mae"] / max(train_metrics["mae"], 1e-9)
+    # r2_gap = train_metrics["r2"] - holdout_metrics["r2"]
+    # rmse_ratio = holdout_metrics["rmse"] / max(train_metrics["rmse"], 1e-9)
+    # mae_ratio = holdout_metrics["mae"] / max(train_metrics["mae"], 1e-9)
 
-    if r2_gap > 0.12 or rmse_ratio > 4.5 or mae_ratio > 4.5:
+    # if r2_gap > 0.12 or rmse_ratio > 4.5 or mae_ratio > 4.5:
+    #     return "severe"
+    # if r2_gap > 0.05 or rmse_ratio > 2.5 or mae_ratio > 2.5:
+    #     return "moderate"
+    # return "mild"
+    r2_gap = train_metrics["r2"] - holdout_metrics["r2"]
+    
+    # Switch from ratios to absolute error differences (Holdout Error - Train Error)
+    rmse_gap = holdout_metrics["rmse"] - train_metrics["rmse"]
+    mae_gap = holdout_metrics["mae"] - train_metrics["mae"]
+
+    # Severe threshold: R2 drops by more than 0.15, or error spikes significantly
+    if r2_gap > 0.15 or rmse_gap > 0.50 or mae_gap > 0.40:
         return "severe"
-    if r2_gap > 0.05 or rmse_ratio > 2.5 or mae_ratio > 2.5:
+        
+    # Moderate threshold: R2 drops by more than 0.07, or error has a noticeable bump
+    if r2_gap > 0.07 or rmse_gap > 0.20 or mae_gap > 0.15:
         return "moderate"
+        
     return "mild"
 
 
 def main():
     feature_columns = load_json(ARTIFACTS_DIR / "feature_columns.json")
     model_metadata = load_json(ARTIFACTS_DIR / "model_metadata.json")
-
     model = joblib.load(ARTIFACTS_DIR / "best_model.pkl")
     scaler = joblib.load(ARTIFACTS_DIR / "scaler.pkl")
 

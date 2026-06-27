@@ -16,6 +16,8 @@ import os
 import joblib
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import sys
+import glob
 
 from training.extract_features import process_dataset_records
 
@@ -25,14 +27,13 @@ DEFAULT_DATASET = os.path.join(os.path.dirname(os.path.abspath(__file__)), "phon
 
 
 def load_artifacts(artifacts_dir=ARTIFACTS_DIR):
-    model = joblib.load(os.path.join(artifacts_dir, "best_model.pkl"))
+    # model = joblib.load(os.path.join(artifacts_dir, "best_model.pkl"))
     scaler = joblib.load(os.path.join(artifacts_dir, "scaler.pkl"))
 
     with open(os.path.join(artifacts_dir, "feature_columns.json"), "r") as f:
         feature_columns = json.load(f)
 
-    return model, scaler, feature_columns
-
+    return scaler, feature_columns
 
 def evaluate_dataset(dataset_path=DEFAULT_DATASET):
     if not os.path.exists(dataset_path):
@@ -56,30 +57,45 @@ def evaluate_dataset(dataset_path=DEFAULT_DATASET):
 
     df = process_dataset_records(normalized_records)
     feature_columns = None
-    model, scaler, feature_columns = load_artifacts()
+    scaler, feature_columns = load_artifacts()
 
     X = df.reindex(columns=feature_columns, fill_value=0).values
     y = df["concentration"].values
 
     X_scaled = scaler.transform(X)
-    predictions = model.predict(X_scaled)
+    model_paths = glob.glob(os.path.join(ARTIFACTS_DIR, "*.pkl"))
+    print("\n" + "=" * 50)
+    print("      VALIDATION REPORT        ")
+    print("=" * 50)
+    
+    for path in model_paths:
+        filename = os.path.basename(path)
+        if filename in ['scaler.pkl', 'best_model.pkl']:
+            continue
+        model = joblib.load(path)
+        predictions = model.predict(X_scaled)
 
-    metrics = {
-        "samples": int(len(y)),
-        "r2": float(r2_score(y, predictions)),
-        "rmse": float(mean_squared_error(y, predictions) ** 0.5),
-        "mae": float(mean_absolute_error(y, predictions)),
-    }
+        metrics = {
+            "samples": int(len(y)),
+            "r2": float(r2_score(y, predictions)),
+            "rmse": float(mean_squared_error(y, predictions) ** 0.5),
+            "mae": float(mean_absolute_error(y, predictions)),
+        }
 
-    print("\nPHONE VALIDATION RESULTS")
-    print("=" * 40)
-    print(f"Samples: {metrics['samples']}")
-    print(f"R²: {metrics['r2']:.4f}")
-    print(f"RMSE: {metrics['rmse']:.4f} mg/L")
-    print(f"MAE: {metrics['mae']:.4f} mg/L")
+        # print("\nPHONE VALIDATION RESULTS")
+        # print("=" * 40)
+        print(f"\n Model: {filename}")
+        print(f"Samples: {metrics['samples']}")
+        print(f"R²: {metrics['r2']:.4f}")
+        print(f"RMSE: {metrics['rmse']:.4f} mg/L")
+        print(f"MAE: {metrics['mae']:.4f} mg/L")
 
     return metrics
 
 
 if __name__ == "__main__":
-    evaluate_dataset()
+    if len(sys.argv) > 1:
+        target_dataset = sys.argv[1]
+    else:
+        target_dataset = DEFAULT_DATASET
+    evaluate_dataset(target_dataset)

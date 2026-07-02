@@ -8,12 +8,85 @@ import numpy as np
 from PIL import Image, ImageEnhance
 import io
 import random
-
+import albumentations as A
 def augment_image(image_base64, augmentation_type=None):
     """Augment a single base64-encoded image"""
     # Decode base64
     image_data = base64.b64decode(image_base64)
     img = Image.open(io.BytesIO(image_data)).convert('RGB')
+    
+    # # 2. Convert to uint8 NumPy array (0-255)
+    # # CRITICAL: Keep as uint8 because Albumentations/OpenCV expect 0-255 integers
+    # img_array = np.array(img, dtype=np.uint8)
+
+    # # 3. Choose random augmentation type
+    # aug_type = augmentation_type or random.choice([
+    #     'rotation', 'noise', 'blur', 'horizontal_flip'
+    # ])
+
+    # # 4. Define Albumentations blocks
+    # # if aug_type == 'rotation':
+    # #     transform = A.Rotate(limit=(-15, 15), p=1.0)
+    # #     img_array = transform(image=img_array)['image']
+        
+    # # elif aug_type == 'brightness':
+    # #     transform = A.RandomBrightnessContrast(brightness_limit=(-0.1, 0.1), contrast_limit=0, p=1.0)
+    # #     img_array = transform(image=img_array)['image']
+        
+    # # elif aug_type == 'contrast':
+    # #     transform = A.RandomBrightnessContrast(brightness_limit=0, contrast_limit=(-0.15, 0.15), p=1.0)
+    # #     img_array = transform(image=img_array)['image']
+        
+    # # elif aug_type == 'samsung_vivid':
+    # #     # Safely juices up saturation and contrast in HSV space without breaking RGB channel reality
+    # #     transform = A.ColorJitter(brightness=0.05, contrast=0.2, saturation=0.4, hue=0.02, p=1.0)
+    # #     img_array = transform(image=img_array)['image']
+        
+    # # elif aug_type == 'pixel_cool':
+    # #     # Drops brightness by 5%, boosts contrast by 25%, drops saturation by 10%, and shifts hue
+    # #     transform = A.ColorJitter(
+    # #         brightness=(0.95, 0.95),  # 1.0 - 0.05 = 0.95 (Dimmed)
+    # #         contrast=(1.25, 1.25),    # 1.0 + 0.25 = 1.25 (Sharpened)
+    # #         saturation=(0.90, 0.90),  # 1.0 - 0.10 = 0.90 (Desaturated)
+    # #         hue=(-0.02, -0.02),       # Hue stays additive, allowing negative boundaries
+    # #         p=1.0
+    # #     )
+    # #     img_array = transform(image=img_array)['image']
+        
+    # # elif aug_type == 'noise':
+    # #     # Replaced var_limit with std_limit for modern Albumentations versions
+    # #     transform = A.GaussNoise(std_limit=(10.0, 30.0), p=1.0)
+    # #     img_array = transform(image=img_array)['image']
+        
+    # # elif aug_type == 'gamma':
+    # #     transform = A.RandomGamma(gamma_limit=(80, 120), p=1.0)
+    # #     img_array = transform(image=img_array)['image']
+    # if aug_type == 'rotation':
+    #     transform = A.Rotate(limit=(-10, 10), p=1.0)
+    #     img_array = transform(image=img_array)['image']
+
+    # elif aug_type == 'noise':
+    #     # Keep noise incredibly subtle so it doesn't skew pixel means dramatically
+    #     transform = A.GaussNoise(std_range=(0.01, 0.04), p=1.0)
+    #     img_array = transform(image=img_array)['image']
+
+    # elif aug_type == 'blur':
+    #     # Simulates a slightly shaky hand/phone camera without changing color values
+    #     transform = A.GaussianBlur(blur_limit=(3, 5), p=1.0)
+    #     img_array = transform(image=img_array)['image']
+
+    # elif aug_type == 'horizontal_flip':
+    #     transform = A.HorizontalFlip(p=1.0)
+    #     img_array = transform(image=img_array)['image']
+
+    # # 5. Convert back to PIL Image and encode back to base64 string
+    # img = Image.fromarray(img_array)
+    # buffer = io.BytesIO()
+    # img.save(buffer, format='JPEG', quality=95)
+    # augmented_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+    #PREVIOUS:
+
     img_array = np.array(img, dtype=np.float32)
 
     # Choose random augmentation type

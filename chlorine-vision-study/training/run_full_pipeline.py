@@ -28,7 +28,7 @@ from sklearn.inspection import permutation_importance
 
 from training.augment_images import augment_image
 from training.extract_features import process_dataset_records
-
+from scipy.stats import randint, uniform 
 
 TRAINING_DIR = "training"
 ARTIFACTS_DIR = os.path.join(TRAINING_DIR, "saved_artifacts")
@@ -43,8 +43,8 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(TRAINING_DIR, "combined_dataset.json"),
-        os.path.join(TRAINING_DIR, "combined_dataset.json"),
+        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
+        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
     ]
 
     for path in candidates:
@@ -155,10 +155,12 @@ def get_model_search_space(random_state=42):
         "Ridge Regression": (
             Ridge(),
             {"alpha": [0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 25.0, 50.0, 100.0]},
+            "grid",
         ),
         "Lasso Regression": (
             Lasso(max_iter=20000),
             {"alpha": [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2]},
+            "grid",
         ),
         "ElasticNet Regression": (
             ElasticNet(max_iter=20000),
@@ -166,22 +168,25 @@ def get_model_search_space(random_state=42):
                 "alpha": [0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.2],
                 "l1_ratio": [0.1, 0.3, 0.5, 0.7, 0.9],
             },
+            "grid",
         ),
         "Random Forest Regression": (
             RandomForestRegressor(random_state=random_state),
             {
-                "n_estimators": [200, 400],
-                "max_depth": [None, 6, 10],
-                "min_samples_leaf": [1, 2, 4],
+                "n_estimators": randint(100, 600),
+                "max_depth": [None, 4, 6, 8, 10, 14],
+                "min_samples_leaf": randint(1, 8),
             },
+            "random",
         ),
         "Gradient Boosting Regression": (
             GradientBoostingRegressor(random_state=random_state),
             {
-                "n_estimators": [100, 200],
-                "learning_rate": [0.03, 0.05, 0.1],
-                "max_depth": [2, 3],
+                "n_estimators": randint(80, 300),
+                "learning_rate": uniform(0.01, 0.19),  # 0.01 to 0.20
+                "max_depth": randint(2, 5),
             },
+            "random",
         ),
         "SVR": (
             SVR(),
@@ -190,33 +195,27 @@ def get_model_search_space(random_state=42):
                 "epsilon": [0.01, 0.1, 0.5],
                 "kernel": ["rbf", "linear"],
             },
+            "grid",
         ),
         "Extra Trees Regression": (
             ExtraTreesRegressor(random_state=random_state),
             {
-                "n_estimators": [200, 400],
-                "max_depth": [None, 6, 10],
-                "min_samples_leaf": [1, 2, 4],
+                "n_estimators": randint(100, 600),
+                "max_depth": [None, 4, 6, 8, 10, 14],
+                "min_samples_leaf": randint(1, 8),
             },
+            "random",
         ),
         "XGBoost Regression": (
             XGBRegressor(random_state=random_state, verbosity=0),
             {
-                "n_estimators": [100, 200],
-                "learning_rate": [0.03, 0.05, 0.1],
-                "max_depth": [3, 5],
-                "subsample": [0.8, 1.0],
+                "n_estimators": randint(80, 300),
+                "learning_rate": uniform(0.01, 0.19),
+                "max_depth": randint(3, 7),
+                "subsample": uniform(0.7, 0.3),  # 0.7 to 1.0
             },
+            "random",
         ),
-        # "LightGBM Regression": (
-        #     LGBMRegressor(random_state=random_state, verbosity=-1),
-        #     {
-        #         "n_estimators": [100, 200],
-        #         "learning_rate": [0.03, 0.05, 0.1],
-        #         "max_depth": [-1, 6, 10],
-        #         "num_leaves": [31, 63],
-        #     },
-        # ),
     }
 
 
@@ -237,13 +236,35 @@ def train_candidates(
 
     results = []
 
-    for model_name, (estimator, param_grid) in get_model_search_space(random_state=random_state).items():
+    for model_name, (estimator, param_grid, search_type) in get_model_search_space(random_state=random_state).items():
         print(f"\nTuning {model_name}...")
 
         pipeline = Pipeline([
             ("scaler", StandardScaler()),
             ("model", estimator),
         ])
+        prefixed_params = {f"model__{key}": value for key, value in param_grid.items()}
+
+        if search_type == "random":
+            search = RandomizedSearchCV(
+                estimator=pipeline,
+                param_distributions=prefixed_params,
+                n_iter=40,
+                scoring="r2",
+                cv=cv,
+                n_jobs=-1,
+                random_state=random_state,
+                refit=True,
+            )
+        else:
+            search = GridSearchCV(
+                estimator=pipeline,
+                param_grid=prefixed_params,
+                scoring="r2",
+                cv=cv,
+                n_jobs=-1,
+                refit=True,
+            )
 
         search = GridSearchCV(
             estimator=pipeline,

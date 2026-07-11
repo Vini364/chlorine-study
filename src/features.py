@@ -1,3 +1,9 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+import gc
+import torch
+torch.set_num_threads(1)
 import json
 import numpy as np
 import pandas as pd
@@ -7,13 +13,13 @@ import base64
 from io import BytesIO
 from PIL import Image
 from ultralytics import YOLO
-import os
 
-# Add the 'r' right here 
-yolo_model = YOLO(r'C:\Users\vu45\Desktop\Research\chlorine-study\chlorine-vision-study\training\roi_with_augmentation.pt')
+# Dynamically locate the YOLO model
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+YOLO_MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")
+yolo_model = YOLO(YOLO_MODEL_PATH)
 # output_dir = "extracted_rois"
 # os.makedirs(output_dir, exist_ok=True)
-
 
 
 # --------------------------
@@ -183,7 +189,8 @@ def extract_haralick_features(rgb_uint8):
 def extract_features(image_base64, filename = None):
     rgb_uint8 = decode_image(image_base64)
     features = {}
-    results = yolo_model(rgb_uint8, verbose = False)[0]
+    with torch.no_grad():
+        results = yolo_model(rgb_uint8, verbose = False)[0]
     if results.masks is None:
         binary_mask = np.ones((rgb_uint8.shape[0], rgb_uint8.shape[1]), dtype = np.uint8)
         print("YOLO MISSED AN IMAGE")
@@ -324,6 +331,7 @@ def process_dataset_records(data, output_csv=None):
     for idx, item in enumerate(data):
         if (idx + 1) % 25 == 0:
             print(f"Processed {idx + 1}/{len(data)} images")
+            gc.collect()
 
         image_base64 = item['image']
         concentration = float(item['concentration'])
@@ -336,6 +344,8 @@ def process_dataset_records(data, output_csv=None):
         features['source_id'] = item.get('source_id')
         features['filename'] = item.get('filename')
         rows.append(features)
+
+        item['image'] = None  # Clear image data to save memory
 
     df = pd.DataFrame(rows)
     if output_csv:

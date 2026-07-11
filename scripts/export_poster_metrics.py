@@ -2,8 +2,8 @@
 Export a concise metrics summary for poster and presentation use.
 
 Run this after:
-  1. python -m training.run_full_pipeline
-  2. python -m training.train_mobile_deployable_model
+  1. python -m src.pipeline
+  2. python -m src.training_mobile
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
-ARTIFACTS_DIR = Path("training") / "saved_artifacts"
+PROJECT_ROOT = Path(__file__).parent.parent
+ARTIFACTS_DIR = PROJECT_ROOT / "models" / "saved_artifacts"
 OUTPUT_PATH = ARTIFACTS_DIR / "poster_metrics.json"
 
 

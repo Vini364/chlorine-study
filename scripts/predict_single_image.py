@@ -5,10 +5,12 @@ import base64
 import joblib
 import pandas as pd
 
-from training.extract_features import extract_features
+# Add parent directory to path to enable imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.features import extract_features
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ARTIFACTS_DIR = os.path.join(BASE_DIR, "saved_artifacts")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "saved_artifacts")
 
 
 def image_file_to_base64(image_path):
@@ -49,7 +51,7 @@ def predict_image(image_path, model=None, scaler=None, feature_columns=None, met
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python -m training.predict_single_image path/to/image.jpg")
+        print("Usage: python scripts/predict_single_image.py path/to/image.jpg")
         sys.exit(1)
 
     image_path = sys.argv[1]

@@ -1,11 +1,3 @@
-"""
-Train a mobile-deployable chlorine model and export it as JSON for the Expo app.
-
-This version intentionally avoids Python-only feature requirements such as Haralick
-textures and instead uses color statistics that we can reproduce in JavaScript
-from a framed JPEG inside the mobile app.
-"""
-
 from __future__ import annotations
 
 import json
@@ -17,13 +9,14 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
+# Get project root
+PROJECT_ROOT = Path(__file__).parent.parent
 
-TRAINING_DIR = Path("training")
-FEATURES_CSV = TRAINING_DIR / "features_data.csv"
-ARTIFACTS_DIR = TRAINING_DIR / "saved_artifacts"
+FEATURES_CSV = PROJECT_ROOT / "data" / "features" / "features_data.csv"
+ARTIFACTS_DIR = PROJECT_ROOT / "models" / "saved_artifacts"
 MOBILE_MODEL_PATH = ARTIFACTS_DIR / "mobile_model.json"
 MOBILE_METADATA_PATH = ARTIFACTS_DIR / "mobile_model_metadata.json"
-MOBILE_APP_MODEL_PATH = Path("mobile/src/mobile_model.json")
+MOBILE_APP_MODEL_PATH = PROJECT_ROOT / "chlorine-vision-study" / "mobile" / "src" / "mobile_model.json"
 
 DEPLOYABLE_FEATURE_COLUMNS = [
     "mean_R",

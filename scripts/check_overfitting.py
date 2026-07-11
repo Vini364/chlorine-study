@@ -10,16 +10,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+import os
 
 import joblib
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from training.extract_features import process_dataset_records
+# Add parent to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from src.features import process_dataset_records
 
-
-TRAINING_DIR = Path("training")
-ARTIFACTS_DIR = TRAINING_DIR / "saved_artifacts"
+PROJECT_ROOT = Path(__file__).parent.parent
+ARTIFACTS_DIR = PROJECT_ROOT / "models" / "saved_artifacts"
 
 
 def load_json(path: Path):

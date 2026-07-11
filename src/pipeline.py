@@ -8,8 +8,16 @@ Key safeguards:
 4. Optionally evaluate on an external phone validation dataset if provided.
 """
 
+import gc
 import json
 import os
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+from collections import Counter
+import torch
+torch.set_num_threads(1)
 
 import joblib
 import numpy as np
@@ -17,7 +25,7 @@ import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, ExtraTreesRegressor
 from sklearn.svm import SVR
 from xgboost import XGBRegressor
-from lightgbm import LGBMRegressor
+# from lightgbm import LGBMRegressor
 from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, GroupKFold, train_test_split
@@ -26,13 +34,22 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 
-from training.augment_images import augment_image
-from training.extract_features import process_dataset_records
+from .preprocessing import augment_image
+from .features import process_dataset_records
 from scipy.stats import randint, uniform 
 
-TRAINING_DIR = "training"
-ARTIFACTS_DIR = os.path.join(TRAINING_DIR, "saved_artifacts")
-EXTERNAL_PHONE_VALIDATION_PATH = os.path.join(TRAINING_DIR, "phone_validation_dataset.json")
+# Get project root directory
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Update paths to new structure
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+PROCESSED_DATA_DIR = os.path.join(DATA_DIR, "processed")
+FEATURES_DIR = os.path.join(DATA_DIR, "features")
+ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "saved_artifacts")
+MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
+
+# Dataset paths
+EXTERNAL_PHONE_VALIDATION_PATH = os.path.join(PROCESSED_DATA_DIR, "phone_validation_dataset.json")
 
 
 def print_section(title):
@@ -43,15 +60,15 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
-        os.path.join(TRAINING_DIR, "AimanSanskritiData.json"),
+        os.path.join(PROCESSED_DATA_DIR, "new_dataset_3.json"),
+        os.path.join(PROCESSED_DATA_DIR, "new_dataset_2.json"),
     ]
 
     for path in candidates:
         if os.path.exists(path):
             return path
 
-    raise FileNotFoundError("No input dataset found. Expected training/new_dataset.json or training/processed_image_data.json")
+    raise FileNotFoundError("No input dataset found. Expected data/processed/new_dataset*.json")
 
 
 def load_dataset_records(path):
@@ -81,6 +98,14 @@ def make_stratify_labels(values, max_bins=5):
     bin_count = min(max_bins, unique_count)
     return pd.qcut(values, q=bin_count, duplicates="drop").astype(str)
 
+def log_split_bin_coverage(records, y, max_bins=5):
+    bins = make_stratify_labels(y, max_bins=max_bins)
+    if bins is None:
+        return
+    counts = pd.Series(bins).value_counts().sort_index()
+    print("Concentration bin coverage:")
+    for interval, count in counts.items():
+        print(f"  {interval}: {count} samples")
 
 def split_original_records(records, test_size=0.2, random_state=42):
     y = np.array([record["concentration"] for record in records], dtype=float)
@@ -99,27 +124,43 @@ def split_original_records(records, test_size=0.2, random_state=42):
     return train_records, holdout_records
 
 
-def augment_training_records(records, augmentations_per_image=2):
-    augmented_records = []
+def augment_training_records(records, base_aug = 2, max_aug = 8, scale = 3.0):
+    os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+    with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "w") as f:
+        f.write("[")
+        first = True
+        def write_records(record):
+            nonlocal first
+            if not first:
+                f.write(",")
+            json.dump(record, f)
+            first = False
+        
+        for index, sample in enumerate(records):
+            original_record = dict(sample)
+            original_record["is_augmented"] = False
+            write_records(original_record)
+            n_aug = int(base_aug + sample["concentration"] * scale)
+            n_aug = min(n_aug, max_aug)
 
-    for index, sample in enumerate(records):
-        original_record = dict(sample)
-        original_record["is_augmented"] = False
-        augmented_records.append(original_record)
+            for _ in range(n_aug):
+                aug_record = {
+                    "image": augment_image(sample["image"]),
+                    "concentration": sample["concentration"],
+                    "filename": sample["filename"],
+                    "source_id": sample["source_id"],
+                    "is_augmented": True,
+                }
+                write_records(aug_record)
+                del(aug_record)
 
-        for _ in range(augmentations_per_image):
-            augmented_records.append({
-                "image": augment_image(sample["image"]),
-                "concentration": sample["concentration"],
-                "filename": sample["filename"],
-                "source_id": sample["source_id"],
-                "is_augmented": True,
-            })
+            if (index + 1) % 25 == 0:
+                print(f"Prepared training augmentations for {index + 1}/{len(records)} originals")
+                f.flush()
+                gc.collect()
+        f.write("]")
 
-        if (index + 1) % 25 == 0:
-            print(f"Prepared training augmentations for {index + 1}/{len(records)} originals")
-
-    return augmented_records
+    return None
 
 
 def evaluate_predictions(y_true, y_pred):
@@ -266,21 +307,21 @@ def train_candidates(
                 refit=True,
             )
 
-        search = GridSearchCV(
-            estimator=pipeline,
-            param_grid={f"model__{key}": value for key, value in param_grid.items()},
-            scoring="r2",
-            cv=cv,
-            n_jobs=1,
-            refit=True,
-        )
+        # search = GridSearchCV(
+        #     estimator=pipeline,
+        #     param_grid={f"model__{key}": value for key, value in param_grid.items()},
+        #     scoring="r2",
+        #     cv=cv,
+        #     n_jobs=1,
+        #     refit=True,
+        # )
         search.fit(X_train, y_train, groups=train_groups)
-        feature_importance = permutation_importance(search.best_estimator_, X_holdout, y_holdout, n_repeats = 5, random_state = 42)
-        importance_df = pd.DataFrame({
-            'Feature': feature_columns,
-            'Importance_Mean': feature_importance.importances_mean,
-            'Importance_Std': feature_importance.importances_std
-        }).sort_values(by='Importance_Mean', ascending=False)
+        # feature_importance = permutation_importance(search.best_estimator_, X_holdout, y_holdout, n_repeats = 5, random_state = 42)
+        # importance_df = pd.DataFrame({
+        #     'Feature': feature_columns,
+        #     'Importance_Mean': feature_importance.importances_mean,
+        #     'Importance_Std': feature_importance.importances_std
+        # }).sort_values(by='Importance_Mean', ascending=False)
 
         train_original_predictions = search.best_estimator_.predict(X_train_original)
         train_original_metrics = evaluate_predictions(y_train_original, train_original_predictions)
@@ -289,8 +330,8 @@ def train_candidates(
         gap_summary = compute_gap_summary(train_original_metrics, holdout_metrics)
         overfit_severity = classify_overfit_gap(train_original_metrics, holdout_metrics)
 
-        for idx, row in importance_df.head(5).iterrows():
-            print(f"{row['Feature']} : {row['Importance_Mean']:.4f}")
+        # for idx, row in importance_df.head(5).iterrows():
+        #     print(f"{row['Feature']} : {row['Importance_Mean']:.4f}")
 
         print(f"  Best params: {search.best_params_}")
         print(f"  CV R²: {search.best_score_:.4f}")
@@ -353,6 +394,7 @@ def evaluate_external_phone_validation(best_estimator, feature_columns):
     return metrics
 
 
+
 def run_pipeline(augmentations_per_image=2, random_state=42):
     print_section("CHLORINE CONCENTRATION PREDICTION PIPELINE")
 
@@ -366,6 +408,17 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
         test_size=0.2,
         random_state=random_state,
     )
+    y_all = np.array([r["concentration"] for r in original_records], dtype=float)
+    log_split_bin_coverage(original_records, y_all)
+
+
+    counts = Counter(record["concentration"] for record in original_records)
+
+    for conc, count in sorted(counts.items()):
+        print(conc, count)
+    source_counts = Counter(r["source_id"] for r in train_originals if r["concentration"] >= 1.5)
+    print(f"Unique high-conc sources: {len(source_counts)}")
+
     # train_originals = original_records
     # holdout_originals = original_records
     print(f"Original images: {len(original_records)}")
@@ -373,22 +426,22 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     print(f"Untouched holdout originals: {len(holdout_originals)}")
 
     print_section("STEP 2: AUGMENT TRAINING IMAGES ONLY")
-    train_records = augment_training_records(
-        train_originals,
-        augmentations_per_image=augmentations_per_image,
-    )
+
+    augment_training_records(train_originals)
+    with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "r") as f:
+        train_records = json.load(f)
     print(f"Training records after augmentation: {len(train_records)}")
 
-    os.makedirs(TRAINING_DIR, exist_ok=True)
-    with open(os.path.join(TRAINING_DIR, "augmented_image_data.json"), "w") as f:
-        json.dump(train_records, f)
-    with open(os.path.join(TRAINING_DIR, "phone_holdout_dataset.json"), "w") as f:
+    os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+    # with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "w") as f:
+    #     json.dump(train_records, f)
+    with open(os.path.join(PROCESSED_DATA_DIR, "phone_holdout_dataset.json"), "w") as f:
         json.dump(holdout_originals, f)
 
     print_section("STEP 3: FEATURE EXTRACTION")
     train_df = process_dataset_records(
         train_records,
-        output_csv=os.path.join(TRAINING_DIR, "features_data.csv"),
+        output_csv=os.path.join(FEATURES_DIR, "features_data.csv"),
     )
     holdout_df = process_dataset_records(holdout_originals)
 

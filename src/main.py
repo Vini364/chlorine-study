@@ -7,7 +7,7 @@ import os
 import json
 import logging
 from datetime import datetime
-from training.predict_single_image import predict_image
+from scripts.predict_single_image import predict_image
 
 # Configure logging
 logging.basicConfig(
@@ -35,7 +35,11 @@ app.add_middleware(
 MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 10 * 1024 * 1024))  # 10MB default
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 HEIF_EXTENSIONS = {".heic", ".heif"}
-ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "./training/saved_artifacts")
+
+# Calculate default artifacts directory
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "models", "saved_artifacts")
+ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", DEFAULT_ARTIFACTS_DIR)
 EXPECTED_MODEL_NAME = os.getenv("EXPECTED_MODEL_NAME", "ElasticNet Regression")
 
 # Global variables for cached models

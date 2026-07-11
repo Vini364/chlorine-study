@@ -3,11 +3,15 @@ import json
 import cv2
 import numpy as np
 
-from extract_features import decode_image, crop_test_tube_region  
+from .features import decode_image, crop_test_tube_region  
 
-INPUT_JSON = "augmented_image_data.json"
-IMG_DIR = "dataset/images"
-MASK_DIR = "dataset/masks"
+# Get project root
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Dataset paths
+INPUT_JSON = os.path.join(PROJECT_ROOT, "data", "processed", "augmented_image_data.json")
+IMG_DIR = os.path.join(PROJECT_ROOT, "data", "processed", "images")
+MASK_DIR = os.path.join(PROJECT_ROOT, "data", "processed", "masks")
 
 os.makedirs(IMG_DIR, exist_ok=True)
 os.makedirs(MASK_DIR, exist_ok=True)

@@ -1,4 +1,6 @@
 import os
+
+from matplotlib import image
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import gc
@@ -13,11 +15,14 @@ import base64
 from io import BytesIO
 from PIL import Image
 from ultralytics import YOLO
+import rawpy
+from pathlib import Path
 
 # Dynamically locate the YOLO model
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-YOLO_MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")
+YOLO_MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "roi_with_augmentation.pt")
 yolo_model = YOLO(YOLO_MODEL_PATH)
+IMAGES_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "new_dataset_4.json")
 # output_dir = "extracted_rois"
 # os.makedirs(output_dir, exist_ok=True)
 
@@ -26,21 +31,25 @@ yolo_model = YOLO(YOLO_MODEL_PATH)
 # Decode base64 image
 # --------------------------
 def decode_image(image_base64):
-    b = base64.b64decode(image_base64)
-    arr = np.frombuffer(b, dtype=np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    if img is None:
+    img_path = str(image_base64)
+    file_ext = os.path.splitext(img_path)[1].lower()
+    if file_ext in {'.dng'}:
+        img = rawpy.imread(img_path).postprocess(use_camera_wb=True, no_auto_bright=True, output_bps=8)
+    elif file_ext in {'.heic', '.heif'}:
         try:
             from pillow_heif import register_heif_opener
 
             register_heif_opener()
-            with Image.open(BytesIO(b)) as pil_image:
+            with Image.open(img_path) as pil_image:
                 img = cv2.cvtColor(np.array(pil_image.convert("RGB")), cv2.COLOR_RGB2BGR)
         except Exception as exc:
-            raise ValueError("Failed to decode image from base64") from exc
-    if img is None:
-        raise ValueError("Failed to decode image from base64")
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            raise ValueError(f"Failed to read HEIC image {img_path.name}") from exc
+    else:
+        img = cv2.imread(img_path)
+        if img is None:
+            raise ValueError("Failed to decode image from base64")
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    return img
 
 
 def _largest_contour_bbox(mask, min_area=200):
@@ -192,71 +201,16 @@ def extract_features(image_base64, filename = None):
     with torch.no_grad():
         results = yolo_model(rgb_uint8, verbose = False)[0]
     if results.masks is None:
-        binary_mask = np.ones((rgb_uint8.shape[0], rgb_uint8.shape[1]), dtype = np.uint8)
-        print("YOLO MISSED AN IMAGE")
+        binary_mask, pink_mask = crop_test_tube_region(rgb_uint8)
+        rgb_float = binary_mask.astype(np.float32)
     else: 
         mask = results.masks.data[0].cpu().numpy()
         mask = cv2.resize(mask, (results.orig_shape[1], results.orig_shape[0]))
         binary_mask = (mask > 0.5).astype(np.uint8)
-    
-    y_indices, x_indices = np.where(binary_mask ==1)
-    # if len(y_indices) > 0 and results.masks is not None:
-    #     ymin, ymax = np.min(y_indices), np.max(y_indices)
-        # mask_height = ymax -  ymin
-        # shave_top = int(ymin + 0.1*mask_height)
-        # shave_bottom = int(ymax - 0.08*mask_height)
-        # binary_mask[ymin:shave_top, :] = 0
-        # binary_mask[shave_bottom:ymax,:] = 0
+        binary_mask = cv2.erode(binary_mask, np.ones((3, 3), np.uint8), iterations=1)
+        rgb_float = rgb_uint8[binary_mask == 1].astype(np.float32)
 
-        # xmin, xmax = np.min(x_indices), np.max(x_indices)
-        # mask_width = xmax - xmin
-        # shave_left = int(xmin + 0.05*mask_width)
-        # shave_right = int(xmax - 0.05*mask_width)
-        # binary_mask[:, xmin:shave_left] = 0
-        # binary_mask[:, shave_right:xmax] = 0
-        # yolo_roi = rgb_uint8[ymin:ymax, xmin:xmax]
 
-        # hsv_roi = cv2.cvtColor(yolo_roi, cv2.COLOR_RGB2HSV)
-        # lab_roi = cv2.cvtColor(yolo_roi, cv2.COLOR_RGB2LAB)
-        
-        # a_channel = lab_roi[:, :, 1]
-        # hue = hsv_roi[:, :, 0]
-        # saturation = hsv_roi[:, :, 1]
-        # value = hsv_roi[:, :, 2]
-        
-        # pink_threshold = max(138, int(np.percentile(a_channel, 78)))
-        # cv_pink_mask = (
-        #     ((hue >= 150) | (hue <= 8)) &
-        #     (a_channel >= pink_threshold) &
-        #     (saturation >= 18) &
-        #     (value <= 250)
-        # ).astype(np.uint8)
-        
-        # cv_pink_mask = cv2.morphologyEx(
-        #     cv_pink_mask,
-        #     cv2.MORPH_CLOSE,
-        #     np.ones((5, 5), np.uint8),
-        #     iterations=1,
-        # )
-        # total_roi_pixels = cv_pink_mask.shape[0] * cv_pink_mask.shape[1]
-        # pixel_count = np.count_nonzero(cv_pink_mask)
-        
-        # pink_area_ratio = pixel_count / total_roi_pixels
-        
-        # #ADDING PINK AREA RATIO AS A FEATURE
-        # features['pink_area_ratio'] = pink_area_ratio
-        # if pixel_count < 150:
-        #     binary_mask.fill(0)
-        #     binary_mask[shave_top: shave_bottom, shave_left: shave_right] = 1
-        # else:
-        #     binary_mask.fill(0) 
-        #     h_roi, w_roi = cv_pink_mask.shape[:2]
-        #     binary_mask[shave_top:shave_top + h_roi, shave_left:shave_left + w_roi] = cv_pink_mask
-    # else:
-    #     print("YOLO MISSED AN IMAGE")
-    #     return None
-
-    rgb_float = rgb_uint8[binary_mask == 1].astype(np.float32)
     R, G, B = rgb_float[:,0], rgb_float[:,1], rgb_float[:,2]
 
     features['mean_R'], features['mean_G'], features['mean_B'] = np.mean(R), np.mean(G), np.mean(B)
@@ -302,6 +256,9 @@ def extract_features(image_base64, filename = None):
         (features['mean_R']-gray_est)**2 + (features['mean_G']-gray_est)**2 + (features['mean_B']-gray_est)**2
     )
     features['dominant_channel'] = int(np.argmax([features['mean_R'], features['mean_G'], features['mean_B']]))
+
+    # Add background-normalized features
+    features.update(compute_bg_normalized_features(rgb_uint8, binary_mask))
 
     # features.update(extract_haralick_features(rgb_uint8))
 
@@ -368,18 +325,52 @@ def process_augmented_data(input_json, output_csv):
 if __name__ == "__main__":
     process_augmented_data("AimanSanskritiData.json", "features_data.csv")
 
-# def normalize_features(rgb):
-#     rgb = rgb.astype(np.float32)
-#     mask = np.percentile(rgb, 95, axis =(0,1))
-
-#     mean_r = np.mean(rgb[:, :, 0][rgb[:, :, 0] < mask[0]])   
-#     mean_g = np.mean(rgb[:, :, 1][rgb[:, :, 1] < mask[1]])
-#     mean_b = np.mean(rgb[:, :, 2][rgb[:, :, 2] < mask[2]])
-#     mean_gray = (mean_r + mean_g + mean_b)/3.0
-
-#     rgb[:, :, 0] *= mean_gray / (mean_r + 1e-6)
-#     rgb[:, :, 1] *= mean_gray / (mean_g + 1e-6)
-#     rgb[:, :, 2] *= mean_gray / (mean_b + 1e-6)
-
-
-#     return np.clip(rgb, 0, 255).astype(np.uint8)
+def compute_bg_normalized_features(rgb_uint8, binary_mask):
+    """
+    Compute background-normalized features by comparing mask region vs background region.
+    Returns a dict of normalized RGB and derived color features.
+    """
+    norm_features = {}
+    
+    # Get mask region pixels
+    mask_pixels = rgb_uint8[binary_mask == 1].astype(np.float32)
+    
+    if len(mask_pixels) == 0:
+        return norm_features
+    
+    # Get background region (inverted mask)
+    bg_mask = (binary_mask == 0).astype(np.uint8)
+    bg_pixels = rgb_uint8[bg_mask == 1].astype(np.float32)
+    
+    if len(bg_pixels) == 0:
+        return norm_features
+    
+    # Compute mean RGB for mask and background
+    mask_mean_r = np.mean(mask_pixels[:, 0])
+    mask_mean_g = np.mean(mask_pixels[:, 1])
+    mask_mean_b = np.mean(mask_pixels[:, 2])
+    
+    bg_mean_r = np.mean(bg_pixels[:, 0])
+    bg_mean_g = np.mean(bg_pixels[:, 1])
+    bg_mean_b = np.mean(bg_pixels[:, 2])
+    
+    # Normalized differences (mask - background)
+    norm_features['norm_diff_R'] = mask_mean_r - bg_mean_r
+    norm_features['norm_diff_G'] = mask_mean_g - bg_mean_g
+    norm_features['norm_diff_B'] = mask_mean_b - bg_mean_b
+    
+    # Ratios (mask / background)
+    norm_features['norm_ratio_R'] = mask_mean_r / (bg_mean_r + 1e-6)
+    norm_features['norm_ratio_G'] = mask_mean_g / (bg_mean_g + 1e-6)
+    norm_features['norm_ratio_B'] = mask_mean_b / (bg_mean_b + 1e-6)
+    
+    # Derived normalized features
+    mask_total = mask_mean_r + mask_mean_g + mask_mean_b
+    bg_total = bg_mean_r + bg_mean_g + bg_mean_b
+    
+    if mask_total > 0 and bg_total > 0:
+        norm_features['norm_rg_diff'] = (mask_mean_r - mask_mean_g) - (bg_mean_r - bg_mean_g)
+        norm_features['norm_rb_diff'] = (mask_mean_r - mask_mean_b) - (bg_mean_r - bg_mean_b)
+        norm_features['norm_gb_diff'] = (mask_mean_g - mask_mean_b) - (bg_mean_g - bg_mean_b)
+    
+    return norm_features

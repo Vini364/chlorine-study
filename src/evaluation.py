@@ -204,10 +204,15 @@ def evaluate_dataset(dataset_path: str = DEFAULT_DATASET) -> None:
         )
         
         print(f"\nModel: {filename}")
-        print("\nError by Concentration Range")
+        print(f"Samples: {len(dataset)}")
+        print(f"R²: {r2_score(analysis_df['actual'], analysis_df['predicted']):.4f}")
+        print(f"MAE: {mean_absolute_error(analysis_df['actual'], analysis_df['predicted']):.4f}")
+        print(f"RMSE: {mean_squared_error(analysis_df['actual'], analysis_df['predicted']) ** 0.5:.4f}")
+        print(f"Median Error: {analysis_df['abs_error'].median():.4f}")
+        # print("\nError by Concentration Range")
         
-        for group_name, subset in analysis_df.groupby("range"):
-            _calculate_range_metrics(subset, group_name)
+        # for group_name, subset in analysis_df.groupby("range", observed=True):
+        #     _calculate_range_metrics(subset, group_name)
 
 
 def _parse_arguments() -> str:

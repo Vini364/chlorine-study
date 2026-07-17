@@ -33,7 +33,7 @@ except ImportError:
     print("Install with: pip install pillow-heif")
 
 # Supported image formats (including HEIC from Apple devices)
-SUPPORTED_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.heic', '.heif'}
+SUPPORTED_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.heic', '.heif', '.dng', '.tiff'}
 
 def get_image_files(directory: Path) -> List[Path]:
     """Get all image files from a directory"""
@@ -43,29 +43,30 @@ def get_image_files(directory: Path) -> List[Path]:
             images.append(file)
     return sorted(images)
 
-def encode_image_to_base64(image_path: Path) -> str:
-    """Encode image file to base64 string, converting HEIC to JPEG if needed"""
-    file_ext = image_path.suffix.lower()
+# def encode_image_to_base64(image_path: Path) -> str:
+#     """Encode image file to base64 string, converting HEIC to JPEG if needed"""
+#     file_ext = image_path.suffix.lower()
 
-    # If HEIC format, convert to JPEG
-    if file_ext in {'.heic', '.heif'}:
-        try:
-            from PIL import Image
-            # Open HEIC image (pillow-heif must be registered)
-            img = Image.open(image_path).convert('RGB')
-            # Encode to JPEG
-            import io
-            buffer = io.BytesIO()
-            img.save(buffer, format='JPEG', quality=95)
-            image_data = buffer.getvalue()
-        except Exception as e:
-            raise ValueError(f"Failed to convert HEIC image {image_path.name}: {str(e)}")
-    else:
-        # Read image file directly
-        with open(image_path, 'rb') as f:
-            image_data = f.read()
+#     # If HEIC format, convert to JPEG
+#     if file_ext in {'.heic', '.heif'}:
+#         try:
+#             from PIL import Image
+#             # Open HEIC image (pillow-heif must be registered)
+#             img = Image.open(image_path).convert('RGB')
+#             # Encode to JPEG
+#             import io
+#             buffer = io.BytesIO()
+#             img.save(buffer, format='JPEG', quality=95)
+#             image_data = buffer.getvalue()
+#         except Exception as e:
+#             raise ValueError(f"Failed to convert HEIC image {image_path.name}: {str(e)}")
+#     else:
+#         # Read image file directly
+#         with open(image_path, 'rb') as f:
+#             image_data = f.read()
 
-    return base64.b64encode(image_data).decode('utf-8')
+    # return base64.b64encode(image_data).decode('utf-8')
+
 
 def convert_folders_to_json(root_dir: str, output_file: str = "training/new_dataset.json") -> Tuple[bool, str]:
     """
@@ -122,9 +123,9 @@ def convert_folders_to_json(root_dir: str, output_file: str = "training/new_data
         # Process each image
         for image_path in images:
             try:
-                base64_data = encode_image_to_base64(image_path)
+                # base64_data = encode_image_to_base64(image_path)
                 dataset.append({
-                    "image": base64_data,
+                    "image": str(image_path.resolve()), # Store the absolute path instead of base64 for now
                     "concentration": concentration,
                     "filename": image_path.name
                 })

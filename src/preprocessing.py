@@ -21,7 +21,7 @@ def augment_image(image_base64, augmentation_type=None, max_dim = 800):
     img_array = np.array(img, dtype=np.uint8)
 
     transform = A.Compose([
-        A.Rotate(limit=10, border_mode=cv.BORDER_REFLECT, p=0.5),
+        A.Rotate(limit=45, border_mode=cv.BORDER_REFLECT, p=0.5),
         A.HorizontalFlip(p=0.5),
         A.ShiftScaleRotate(
             shift_limit=0.05,
@@ -30,7 +30,7 @@ def augment_image(image_base64, augmentation_type=None, max_dim = 800):
             border_mode=cv.BORDER_REFLECT,
             p=0.5
         ),
-        A.RandomBrightnessContrast(0.05, 0.05, p=0.3),
+        # A.RandomBrightnessContrast(0.05, 0.05, p=0.3),
     ])
 
     img_array = transform(image=img_array)['image'] 

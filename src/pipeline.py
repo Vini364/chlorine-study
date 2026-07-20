@@ -60,7 +60,7 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(PROCESSED_DATA_DIR, "new_dataset_3.json"),
+        os.path.join(PROCESSED_DATA_DIR, "new_dataset_5.json"),
         os.path.join(PROCESSED_DATA_DIR, "new_dataset_2.json"),
     ]
 
@@ -124,7 +124,7 @@ def split_original_records(records, test_size=0.2, random_state=42):
     return train_records, holdout_records
 
 
-def augment_training_records(records, base_aug = 2, max_aug = 8, scale = 3.0):
+def augment_training_records(records, base_aug = 2, max_aug = 6, scale = 3.0):
     os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
     with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "w") as f:
         f.write("[")

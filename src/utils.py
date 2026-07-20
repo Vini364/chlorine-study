@@ -23,9 +23,10 @@ def generate_masks():
     print(f"Processing {len(data)} images...")
 
     for idx, item in enumerate(data):
-        image_base64 = item["image"]
-
-        rgb = decode_image(image_base64)
+        image_input = item["image"]
+        
+        # Load image using decode_image which handles both paths and base64
+        rgb = decode_image(image_input)
 
         roi, pink_mask = crop_test_tube_region(rgb)
 

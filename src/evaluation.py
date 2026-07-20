@@ -6,7 +6,7 @@ This module provides utilities to validate trained models against real-world pho
 Expected JSON format:
     [
         {
-            "image": "<base64>",
+            "image": "<file_path_or_base64>",
             "concentration": 0.44,
             "filename": "IMG_1234.HEIC"
         }

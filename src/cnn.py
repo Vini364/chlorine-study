@@ -15,6 +15,16 @@ TRAINING_DIR = "training"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def is_file_path(image_input):
+    """Determine if input is a file path or base64-encoded data."""
+    if not isinstance(image_input, str):
+        return False
+    # Check for common file path indicators
+    return (image_input.startswith('/') or image_input.startswith('.') or 
+            '\\' in image_input or 
+            image_input.endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.heic', '.heif', '.dng', '.tiff')))
+
+
 def load_dataset_records(path):
     with open(path, "r") as f:
         dataset = json.load(f)
@@ -30,10 +40,15 @@ def load_dataset_records(path):
 
 
 def decode_image(image_data):
-    """Decode base64 image to PIL Image."""
+    """Decode image from either file path or base64 to PIL Image."""
     if isinstance(image_data, str):
-        image_bytes = base64.b64decode(image_data)
-        return Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        if is_file_path(image_data):
+            # It's a file path
+            return Image.open(image_data).convert("RGB")
+        else:
+            # It's base64-encoded
+            image_bytes = base64.b64decode(image_data)
+            return Image.open(io.BytesIO(image_bytes)).convert("RGB")
     raise ValueError("Unsupported image format")
 
 
@@ -57,7 +72,7 @@ class ConcentrationDataset(Dataset):
 def get_transforms():
     train_transform = transforms.Compose([
         transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip()
+        transforms.RandomHorizontalFlip(),
         transforms.RandomVerticalFlip(),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
         transforms.ToTensor(),

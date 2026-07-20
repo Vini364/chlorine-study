@@ -5,15 +5,53 @@ import cv2 as cv
 import json
 import base64
 import numpy as np
+import os
 from PIL import Image, ImageEnhance
 import io
 import random
 import albumentations as A
-def augment_image(image_base64, augmentation_type=None, max_dim = 800):
-    """Augment a single base64-encoded image"""
-    # Decode base64
-    image_data = base64.b64decode(image_base64)
-    img = Image.open(io.BytesIO(image_data)).convert('RGB')
+import rawpy
+
+def is_file_path(image_input):
+    """Determine if input is a file path or base64-encoded data."""
+    if not isinstance(image_input, str):
+        return False
+    # Check for common file path indicators
+    return (image_input.startswith('/') or image_input.startswith('.') or 
+            '\\' in image_input or 
+            image_input.endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.heic', '.heif', '.dng', '.tiff')))
+
+def augment_image(image_input, augmentation_type=None, max_dim = 800):
+    """Augment a single image from either file path or base64-encoded data.
+    
+    Args:
+        image_input: Either a file path (str) or base64-encoded image data (str)
+        augmentation_type: Optional specific augmentation to apply
+        max_dim: Maximum dimension for resizing
+    """
+    # Determine if input is a file path or base64
+    if is_file_path(image_input):
+        format = os.path.splitext(image_input)[1].lower()
+        if format in {'.dng'}:
+            img = rawpy.imread(image_input).postprocess(use_camera_wb=True, no_auto_bright=True, output_bps=8)
+        elif format in {'.heic', '.heif'}:
+            try:
+                from pillow_heif import register_heif_opener
+                register_heif_opener()
+                with Image.open(image_input) as pil_image:
+                    img = cv.cvtColor(np.array(pil_image.convert("RGB")), cv.COLOR_RGB2BGR)
+            except Exception as exc:
+                raise ValueError(f"Failed to read HEIC image {image_input}") from exc
+        else:
+            img = cv.imread(image_input)
+            if img is None:
+                raise ValueError(f"Failed to read image from path: {image_input}")
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+    else:
+        # It's base64-encoded
+        image_data = base64.b64decode(image_input)
+        img = Image.open(io.BytesIO(image_data)).convert('RGB')
+    img = Image.fromarray(img)
     img.thumbnail((max_dim, max_dim), Image.LANCZOS) 
     
     # 2. Convert to uint8 NumPy array (0-255)
@@ -87,8 +125,16 @@ def augment_image(image_base64, augmentation_type=None, max_dim = 800):
     # augmented_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
     return augmented_base64
 
-def augment_dataset(input_json, output_json, augmentations_per_image=2):
-    """Augment all images in dataset and save to output JSON"""
+def augment_dataset(input_json, output_json, augmentations_per_image=2, save_augmented_images=False, output_image_dir=None):
+    """Augment all images in dataset and save to output JSON.
+    
+    Args:
+        input_json: Path to input JSON file
+        output_json: Path to output JSON file  
+        augmentations_per_image: Number of augmentations per image
+        save_augmented_images: If True, save augmented images to disk and store paths
+        output_image_dir: Directory to save augmented images (required if save_augmented_images=True)
+    """
     print(f"Loading dataset from {input_json}...")
     with open(input_json, 'r') as f:
         dataset = json.load(f)
@@ -101,21 +147,39 @@ def augment_dataset(input_json, output_json, augmentations_per_image=2):
         augmented_dataset.append({
             'image': sample['image'],
             'concentration': sample['concentration'],
-            'is_augmented': False
+            'is_augmented': False,
+            'filename': sample.get('filename')
         })
         if (i + 1) % 50 == 0:
             print(f"  Processed {i + 1}/{len(dataset)} originals")
 
     # Create augmented versions
     total = len(dataset)
+    if save_augmented_images and output_image_dir:
+        os.makedirs(output_image_dir, exist_ok=True)
+    
     for i, sample in enumerate(dataset):
         for j in range(augmentations_per_image):
             try:
                 augmented_img = augment_image(sample['image'])
+                
+                if save_augmented_images and output_image_dir:
+                    # Save augmented image to disk
+                    base_filename = os.path.splitext(sample.get('filename', f'sample_{i}'))[0]
+                    img_filename = f"{base_filename}_aug_{j}.jpg"
+                    img_path = os.path.join(output_image_dir, img_filename)
+                    img_pil = Image.fromarray((augmented_img * 255).astype(np.uint8)) if isinstance(augmented_img, np.ndarray) else Image.open(io.BytesIO(base64.b64decode(augmented_img)))
+                    img_pil.save(img_path, quality=92)
+                    image_field = img_path
+                else:
+                    # Keep as base64
+                    image_field = augmented_img
+                
                 augmented_dataset.append({
-                    'image': augmented_img,
+                    'image': image_field,
                     'concentration': sample['concentration'],
-                    'is_augmented': True
+                    'is_augmented': True,
+                    'filename': sample.get('filename')
                 })
             except Exception as e:
                 print(f"Warning: Failed to augment image {i}: {str(e)}")

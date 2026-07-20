@@ -28,24 +28,56 @@ IMAGES_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "new_dataset_4.jso
 
 
 # --------------------------
+# Helper function
+# --------------------------
+def is_file_path(image_input):
+    """Determine if input is a file path or base64-encoded data."""
+    if not isinstance(image_input, str):
+        return False
+    if len(image_input) > 1000:
+        return False
+    # Check for common file path indicators
+    return (image_input.startswith('/') or image_input.startswith('.') or 
+            '\\' in image_input or 
+            image_input.endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.heic', '.heif', '.dng', '.tiff')))
+
+# --------------------------
 # Decode base64 image
 # --------------------------
-def decode_image(image_base64):
-    img_path = str(image_base64)
-    file_ext = os.path.splitext(img_path)[1].lower()
-    if file_ext in {'.dng'}:
-        img = rawpy.imread(img_path).postprocess(use_camera_wb=True, no_auto_bright=True, output_bps=8)
-    elif file_ext in {'.heic', '.heif'}:
-        try:
-            from pillow_heif import register_heif_opener
-
-            register_heif_opener()
-            with Image.open(img_path) as pil_image:
-                img = cv2.cvtColor(np.array(pil_image.convert("RGB")), cv2.COLOR_RGB2BGR)
-        except Exception as exc:
-            raise ValueError(f"Failed to read HEIC image {img_path.name}") from exc
+def decode_image(image_input):
+    """Decode image from either file path or base64-encoded data.
+    
+    Args:
+        image_input: Either a file path (str) or base64-encoded image data (str)
+    
+    Returns:
+        Image as RGB numpy array
+    """
+    if is_file_path(image_input):
+        # Handle file path
+        img_path = str(image_input)
+        file_ext = os.path.splitext(img_path)[1].lower()
+        if file_ext in {'.dng'}:
+            img = rawpy.imread(img_path).postprocess(use_camera_wb=True, no_auto_bright=True, output_bps=8)
+        elif file_ext in {'.heic', '.heif'}:
+            try:
+                from pillow_heif import register_heif_opener
+                register_heif_opener()
+                with Image.open(img_path) as pil_image:
+                    img = cv2.cvtColor(np.array(pil_image.convert("RGB")), cv2.COLOR_RGB2BGR)
+            except Exception as exc:
+                raise ValueError(f"Failed to read HEIC image {img_path}") from exc
+        else:
+            img = cv2.imread(img_path)
+            if img is None:
+                raise ValueError(f"Failed to read image from path: {img_path}")
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     else:
-        img = cv2.imread(img_path)
+        # Handle base64-encoded data
+        import base64
+        image_data = base64.b64decode(image_input)
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             raise ValueError("Failed to decode image from base64")
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -195,8 +227,14 @@ def extract_haralick_features(rgb_uint8):
 # --------------------------
 # Full features
 # --------------------------
-def extract_features(image_base64, filename = None):
-    rgb_uint8 = decode_image(image_base64)
+def extract_features(image_input, filename = None):
+    """Extract features from an image provided as either a file path or base64 data.
+    
+    Args:
+        image_input: Either a file path (str) or base64-encoded image data (str)
+        filename: Optional filename for reference
+    """
+    rgb_uint8 = decode_image(image_input)
     features = {}
     with torch.no_grad():
         results = yolo_model(rgb_uint8, verbose = False)[0]

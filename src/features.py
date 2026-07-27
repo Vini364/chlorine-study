@@ -1,8 +1,6 @@
 import os
 
 from matplotlib import image
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import gc
 import torch
 torch.set_num_threads(1)
@@ -23,9 +21,54 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 YOLO_MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "roi_with_augmentation.pt")
 yolo_model = YOLO(YOLO_MODEL_PATH)
 IMAGES_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "new_dataset_4.json")
+BATCH_SIZE = 16
 # output_dir = "extracted_rois"
 # os.makedirs(output_dir, exist_ok=True)
+import hashlib
 
+FEATURE_CACHE_PATH = os.path.join(PROJECT_ROOT, "data", "features", "feature_cache.json")
+
+
+def _resolve_image_path(image_path):
+    """Resolve image paths robustly across moved repository locations."""
+    candidate = os.path.expandvars(os.path.expanduser(str(image_path)))
+    if os.path.exists(candidate):
+        return candidate
+
+    # Support stale absolute paths that still include the repo folder name,
+    # e.g. /Users/.../Desktop/chlorine-study/... after moving to Downloads/.
+    repo_name = os.path.basename(PROJECT_ROOT)
+    marker = f"{os.sep}{repo_name}{os.sep}"
+    if os.path.isabs(candidate) and marker in candidate:
+        _, suffix = candidate.split(marker, 1)
+        remapped = os.path.join(PROJECT_ROOT, suffix)
+        if os.path.exists(remapped):
+            return remapped
+
+    if not os.path.isabs(candidate):
+        remapped = os.path.join(PROJECT_ROOT, candidate)
+        if os.path.exists(remapped):
+            return remapped
+
+    raise FileNotFoundError(
+        f"Image file not found: {image_path}. "
+        f"Tried: {candidate}"
+    )
+
+def load_feature_cache():
+    if os.path.exists(FEATURE_CACHE_PATH):
+        with open(FEATURE_CACHE_PATH, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_feature_cache(cache):
+    os.makedirs(os.path.dirname(FEATURE_CACHE_PATH), exist_ok=True)
+    with open(FEATURE_CACHE_PATH, "w") as f:
+        json.dump(cache, f)
+
+def cache_key(item):
+    # only cache non-augmented originals — augmented copies regenerate each run
+    return item.get("filename")
 
 # --------------------------
 # Helper function
@@ -55,10 +98,17 @@ def decode_image(image_input):
     """
     if is_file_path(image_input):
         # Handle file path
-        img_path = str(image_input)
+        img_path = _resolve_image_path(image_input)
         file_ext = os.path.splitext(img_path)[1].lower()
         if file_ext in {'.dng'}:
-            img = rawpy.imread(img_path).postprocess(use_camera_wb=True, no_auto_bright=True, output_bps=8)
+            try:
+                img = rawpy.imread(img_path).postprocess(
+                    use_camera_wb=True,
+                    no_auto_bright=True,
+                    output_bps=8,
+                )
+            except rawpy.LibRawIOError as exc:
+                raise ValueError(f"Failed to read RAW image: {img_path}") from exc
         elif file_ext in {'.heic', '.heif'}:
             try:
                 from pillow_heif import register_heif_opener
@@ -227,21 +277,30 @@ def extract_haralick_features(rgb_uint8):
 # --------------------------
 # Full features
 # --------------------------
-def extract_features(image_input, filename = None):
+def extract_features(rgb_uint8, results):
     """Extract features from an image provided as either a file path or base64 data.
     
     Args:
         image_input: Either a file path (str) or base64-encoded image data (str)
         filename: Optional filename for reference
     """
-    rgb_uint8 = decode_image(image_input)
     features = {}
-    with torch.no_grad():
-        results = yolo_model(rgb_uint8, verbose = False)[0]
     if results.masks is None:
-        binary_mask, pink_mask = crop_test_tube_region(rgb_uint8)
-        rgb_float = binary_mask.astype(np.float32)
-    else: 
+        # YOLO did not produce masks — fall back to heuristic crop and pink-mask.
+        cropped_rgb, pink_mask = crop_test_tube_region(rgb_uint8)
+        # Use the cropped RGB region as the working image
+        rgb_uint8 = cropped_rgb
+        # Attempt to convert the returned pink_mask into a binary mask aligned with the crop.
+        if pink_mask is None:
+            binary_mask = np.ones((rgb_uint8.shape[0], rgb_uint8.shape[1]), dtype=np.uint8)
+        else:
+            # If pink_mask shape doesn't match the crop, fall back to an all-ones mask
+            if pink_mask.shape[:2] != rgb_uint8.shape[:2]:
+                binary_mask = np.ones((rgb_uint8.shape[0], rgb_uint8.shape[1]), dtype=np.uint8)
+            else:
+                binary_mask = (pink_mask > 0).astype(np.uint8)
+        rgb_float = rgb_uint8[binary_mask == 1].astype(np.float32)
+    else:
         mask = results.masks.data[0].cpu().numpy()
         mask = cv2.resize(mask, (results.orig_shape[1], results.orig_shape[0]))
         binary_mask = (mask > 0.5).astype(np.uint8)
@@ -314,33 +373,46 @@ def extract_features(image_input, filename = None):
         features.update(extract_haralick_features(rgb_uint8))
     return features
 
+def yolo_batch(rgb_images):
+    with torch.no_grad():
+        results = yolo_model(rgb_images, verbose = False)
+    return results
+
 # --------------------------
 # Process dataset
 # --------------------------
 def process_dataset_records(data, output_csv=None):
     """Extract features from an in-memory dataset of image records."""
     print(f"Loaded {len(data)} images. Extracting features...")
+    cache = load_feature_cache()
     rows = []
-    
-    
-    for idx, item in enumerate(data):
-        if (idx + 1) % 25 == 0:
-            print(f"Processed {idx + 1}/{len(data)} images")
+    to_extract = []
+    for item in data:
+        key = cache_key(item)
+        if not item.get("is_augmented", False) and key in cache:
+            rows.append(cache[key])
+        else:
+            to_extract.append(item)
+
+    print(f"Reused {len(rows)} cached, extracting {len(to_extract)} fresh")
+    for batch_start in range(0, len(to_extract), BATCH_SIZE):
+        batch_items = to_extract[batch_start:batch_start+BATCH_SIZE]
+        decoded = [decode_image(item['image']) for item in batch_items]
+        results = yolo_batch(decoded)
+        for item, rgb_uint8, result in zip(batch_items, decoded, results):
+            features = extract_features(rgb_uint8, result)
+            features['concentration'] = float(item['concentration'])
+            features['is_augmented'] = item.get('is_augmented', False)
+            features['source_id'] = item.get('source_id')
+            features['filename'] = item.get('filename')
+            rows.append(features)
+            if not item.get("is_augmented", False):
+                cache[cache_key(item)] = features
+            item['image'] = None
+            
+        if (batch_start // BATCH_SIZE + 1) % 5 == 0:
+            print(f"Processed {batch_start + len(batch_items)}/{len(data)} images")
             gc.collect()
-
-        image_base64 = item['image']
-        concentration = float(item['concentration'])
-        features = extract_features(image_base64, filename = item.get('filename'))
-        if features is None:
-            continue
-
-        features['concentration'] = concentration
-        features['is_augmented'] = item.get('is_augmented', False)
-        features['source_id'] = item.get('source_id')
-        features['filename'] = item.get('filename')
-        rows.append(features)
-
-        item['image'] = None  # Clear image data to save memory
 
     df = pd.DataFrame(rows)
     if output_csv:

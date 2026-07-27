@@ -491,10 +491,33 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     print(f"  Holdout RMSE: {best_result['holdout_metrics']['rmse']:.4f}")
     print(f"  Holdout MAE: {best_result['holdout_metrics']['mae']:.4f}")
 
-    print_section("STEP 5: OPTIONAL EXTERNAL PHONE VALIDATION")
+    print_section("STEP 5: EVALUATE ON UNTOUCHED HOLDOUT ORIGINALS")
+    # Evaluate the chosen pipeline estimator directly on the untouched holdout originals
+    try:
+        holdout_predictions = best_estimator.predict(X_holdout)
+        holdout_eval = evaluate_predictions(y_holdout, holdout_predictions)
+        holdout_eval_report = {
+            "holdout_metrics": holdout_eval,
+            "samples": int(len(y_holdout)),
+            "model_name": best_result["model_name"],
+        }
+        print("\nHoldout evaluation:")
+        print(f"  Samples: {holdout_eval_report['samples']}")
+        print(f"  R²: {holdout_eval['r2']:.4f}")
+        print(f"  RMSE: {holdout_eval['rmse']:.4f}")
+        print(f"  MAE: {holdout_eval['mae']:.4f}")
+
+        # Save a JSON report alongside artifacts for reproducibility
+        os.makedirs(ARTIFACTS_DIR, exist_ok=True)
+        with open(os.path.join(ARTIFACTS_DIR, "holdout_evaluation.json"), "w") as f:
+            json.dump(holdout_eval_report, f, indent=2)
+    except Exception as exc:
+        print("Holdout evaluation failed:", exc)
+
+    print_section("STEP 6: OPTIONAL EXTERNAL PHONE VALIDATION")
     external_phone_metrics = evaluate_external_phone_validation(best_estimator, feature_columns)
 
-    print_section("STEP 6: SAVE ARTIFACTS")
+    print_section("STEP 7: SAVE ARTIFACTS")
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     joblib.dump(best_model, os.path.join(ARTIFACTS_DIR, "best_model.pkl"))
     joblib.dump(best_scaler, os.path.join(ARTIFACTS_DIR, "scaler.pkl"))

@@ -34,7 +34,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 
-from .preprocessing import augment_image
+from .preprocessing import prepare_image, transform_image
 from .features import process_dataset_records
 from scipy.stats import randint, uniform 
 
@@ -60,7 +60,7 @@ def print_section(title):
 
 def choose_input_dataset():
     candidates = [
-        os.path.join(PROCESSED_DATA_DIR, "new_dataset_5.json"),
+        os.path.join(PROCESSED_DATA_DIR, "new_dataset_3.json"),
         os.path.join(PROCESSED_DATA_DIR, "new_dataset_2.json"),
     ]
 
@@ -124,8 +124,9 @@ def split_original_records(records, test_size=0.2, random_state=42):
     return train_records, holdout_records
 
 
-def augment_training_records(records, base_aug = 2, max_aug = 6, scale = 3.0):
+def augment_training_records(records, base_aug = 2, max_aug = 3, scale = 3.0):
     os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
+    
     with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "w") as f:
         f.write("[")
         first = True
@@ -142,10 +143,11 @@ def augment_training_records(records, base_aug = 2, max_aug = 6, scale = 3.0):
             write_records(original_record)
             n_aug = int(base_aug + sample["concentration"] * scale)
             n_aug = min(n_aug, max_aug)
+            prepared_image = prepare_image(sample["image"])
 
             for _ in range(n_aug):
                 aug_record = {
-                    "image": augment_image(sample["image"]),
+                    "image": transform_image(prepared_image),
                     "concentration": sample["concentration"],
                     "filename": sample["filename"],
                     "source_id": sample["source_id"],
@@ -367,7 +369,7 @@ def train_candidates(
     for candidate in results:
         raw_estimator = candidate['best_estimator']
         raw_model = raw_estimator.named_steps["model"]
-        joblib.dump(raw_model, os.path.join(ARTIFACTS_DIR, f"{candidate['model_name'].lower().replace(' ', '_')}.pkl"))
+        joblib.dump(raw_model, os.path.join(ARTIFACTS_DIR, f"dataset_3_{candidate['model_name'].lower().replace(' ', '_')}.pkl"))
     return results
 
 
@@ -412,15 +414,13 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     log_split_bin_coverage(original_records, y_all)
 
 
-    counts = Counter(record["concentration"] for record in original_records)
+    # counts = Counter(record["concentration"] for record in original_records)
 
-    for conc, count in sorted(counts.items()):
-        print(conc, count)
-    source_counts = Counter(r["source_id"] for r in train_originals if r["concentration"] >= 1.5)
-    print(f"Unique high-conc sources: {len(source_counts)}")
+    # for conc, count in sorted(counts.items()):
+    #     print(conc, count)
+    # source_counts = Counter(r["source_id"] for r in train_originals if r["concentration"] >= 1.5)
+    # print(f"Unique high-conc sources: {len(source_counts)}")
 
-    # train_originals = original_records
-    # holdout_originals = original_records
     print(f"Original images: {len(original_records)}")
     print(f"Training originals: {len(train_originals)}")
     print(f"Untouched holdout originals: {len(holdout_originals)}")
@@ -464,7 +464,10 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     print(f"Training samples: {len(X_train)}")
     print(f"Holdout samples: {len(X_holdout)}")
 
+
     print_section("STEP 4: MODEL SEARCH WITH GROUP-AWARE CROSS-VALIDATION")
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     candidate_results = train_candidates(
         X_train,
         y_train,

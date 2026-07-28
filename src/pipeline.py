@@ -31,6 +31,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import GridSearchCV, GroupKFold, train_test_split
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
 from sklearn.inspection import permutation_importance
 
@@ -283,6 +284,7 @@ def train_candidates(
         print(f"\nTuning {model_name}...")
 
         pipeline = Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler()),
             ("model", estimator),
         ])

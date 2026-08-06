@@ -28,6 +28,23 @@ import hashlib
 
 FEATURE_CACHE_PATH = os.path.join(PROJECT_ROOT, "data", "features", "feature_cache.json")
 
+CACHE_VERSION = "v1"  # bump this any time extract_features() logic changes,
+                       # to invalidate all old cache entries automatically
+
+def _image_content_hash(image_input):
+    """Hash based on actual image bytes, not filename — identical filenames
+    from different datasets never collide, and a changed/replaced image
+    under the same filename gets a fresh key automatically."""
+    if is_file_path(image_input):
+        path = _resolve_image_path(image_input)
+        with open(path, "rb") as f:
+            data = f.read()
+    else:
+        data = image_input.encode("utf-8") if isinstance(image_input, str) else image_input
+    return hashlib.sha1(data).hexdigest()
+
+def cache_key(item, namespace):
+    return f"{CACHE_VERSION}:{namespace}:{_image_content_hash(item['image'])}"
 
 def _resolve_image_path(image_path):
     """Resolve image paths robustly across moved repository locations."""
@@ -57,18 +74,30 @@ def _resolve_image_path(image_path):
 
 def load_feature_cache():
     if os.path.exists(FEATURE_CACHE_PATH):
-        with open(FEATURE_CACHE_PATH, "r") as f:
-            return json.load(f)
+        try:
+            with open(FEATURE_CACHE_PATH, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            print(f"Warning: {FEATURE_CACHE_PATH} is corrupt/unreadable — starting with an empty cache.")
+            return {}
     return {}
+
+def _json_default(o):
+    if isinstance(o, (np.floating,)):
+        return float(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
 
 def save_feature_cache(cache):
     os.makedirs(os.path.dirname(FEATURE_CACHE_PATH), exist_ok=True)
-    with open(FEATURE_CACHE_PATH, "w") as f:
-        json.dump(cache, f)
+    tmp_path = FEATURE_CACHE_PATH + ".tmp"
+    with open(tmp_path, "w") as f:
+        json.dump(cache, f, default=_json_default)
+    os.replace(tmp_path, FEATURE_CACHE_PATH)  # atomic on POSIX and Windows
 
-def cache_key(item):
-    # only cache non-augmented originals — augmented copies regenerate each run
-    return item.get("filename")
 
 # --------------------------
 # Helper function
@@ -286,6 +315,7 @@ def extract_features(rgb_uint8, results):
     """
     features = {}
     if results.masks is None:
+        print("YOLO MISSED AN IMAGE")
         # YOLO did not produce masks — fall back to heuristic crop and pink-mask.
         cropped_rgb, pink_mask = crop_test_tube_region(rgb_uint8)
         # Use the cropped RGB region as the working image
@@ -355,7 +385,7 @@ def extract_features(rgb_uint8, results):
     features['dominant_channel'] = int(np.argmax([features['mean_R'], features['mean_G'], features['mean_B']]))
 
     # Add background-normalized features
-    features.update(compute_bg_normalized_features(rgb_uint8, binary_mask))
+    # features.update(compute_bg_normalized_features(rgb_uint8, binary_mask))
 
     # features.update(extract_haralick_features(rgb_uint8))
 
@@ -381,16 +411,21 @@ def yolo_batch(rgb_images):
 # --------------------------
 # Process dataset
 # --------------------------
-def process_dataset_records(data, output_csv=None):
-    """Extract features from an in-memory dataset of image records."""
+def process_dataset_records(data, output_csv=None, namespace="default", cache_flush_every=5):
     print(f"Loaded {len(data)} images. Extracting features...")
     cache = load_feature_cache()
     rows = []
     to_extract = []
     for item in data:
-        key = cache_key(item)
+        key = cache_key(item, namespace)
         if not item.get("is_augmented", False) and key in cache:
-            rows.append(cache[key])
+            cached = dict(cache[key])  # copy so we don't mutate the cache entry
+            # Never trust a stale label — always re-stamp from the current item
+            cached['concentration'] = float(item['concentration'])
+            cached['source_id'] = item.get('source_id')
+            cached['filename'] = item.get('filename')
+            cached['is_augmented'] = False
+            rows.append(cached)
         else:
             to_extract.append(item)
 
@@ -407,12 +442,16 @@ def process_dataset_records(data, output_csv=None):
             features['filename'] = item.get('filename')
             rows.append(features)
             if not item.get("is_augmented", False):
-                cache[cache_key(item)] = features
+                cache[cache_key(item, namespace)] = features
             item['image'] = None
-            
-        if (batch_start // BATCH_SIZE + 1) % 5 == 0:
+
+        batch_num = batch_start // BATCH_SIZE + 1
+        if batch_num % cache_flush_every == 0:
             print(f"Processed {batch_start + len(batch_items)}/{len(data)} images")
+            save_feature_cache(cache)   # periodic flush so a crash doesn't lose everything
             gc.collect()
+
+    save_feature_cache(cache)  # final flush
 
     df = pd.DataFrame(rows)
     if output_csv:
@@ -420,7 +459,6 @@ def process_dataset_records(data, output_csv=None):
         print(f"Saved features to {output_csv}")
 
     return df
-
 
 def process_augmented_data(input_json, output_csv):
     print(f"\nLoading augmented images from {input_json}...")
@@ -435,52 +473,52 @@ def process_augmented_data(input_json, output_csv):
 if __name__ == "__main__":
     process_augmented_data("AimanSanskritiData.json", "features_data.csv")
 
-def compute_bg_normalized_features(rgb_uint8, binary_mask):
-    """
-    Compute background-normalized features by comparing mask region vs background region.
-    Returns a dict of normalized RGB and derived color features.
-    """
-    norm_features = {}
+# def compute_bg_normalized_features(rgb_uint8, binary_mask):
+#     """
+#     Compute background-normalized features by comparing mask region vs background region.
+#     Returns a dict of normalized RGB and derived color features.
+#     """
+#     norm_features = {}
     
-    # Get mask region pixels
-    mask_pixels = rgb_uint8[binary_mask == 1].astype(np.float32)
+#     # Get mask region pixels
+#     mask_pixels = rgb_uint8[binary_mask == 1].astype(np.float32)
     
-    if len(mask_pixels) == 0:
-        return norm_features
+#     if len(mask_pixels) == 0:
+#         return norm_features
     
-    # Get background region (inverted mask)
-    bg_mask = (binary_mask == 0).astype(np.uint8)
-    bg_pixels = rgb_uint8[bg_mask == 1].astype(np.float32)
+#     # Get background region (inverted mask)
+#     bg_mask = (binary_mask == 0).astype(np.uint8)
+#     bg_pixels = rgb_uint8[bg_mask == 1].astype(np.float32)
     
-    if len(bg_pixels) == 0:
-        return norm_features
+#     if len(bg_pixels) == 0:
+#         return norm_features
     
-    # Compute mean RGB for mask and background
-    mask_mean_r = np.mean(mask_pixels[:, 0])
-    mask_mean_g = np.mean(mask_pixels[:, 1])
-    mask_mean_b = np.mean(mask_pixels[:, 2])
+#     # Compute mean RGB for mask and background
+#     mask_mean_r = np.mean(mask_pixels[:, 0])
+#     mask_mean_g = np.mean(mask_pixels[:, 1])
+#     mask_mean_b = np.mean(mask_pixels[:, 2])
     
-    bg_mean_r = np.mean(bg_pixels[:, 0])
-    bg_mean_g = np.mean(bg_pixels[:, 1])
-    bg_mean_b = np.mean(bg_pixels[:, 2])
+#     bg_mean_r = np.mean(bg_pixels[:, 0])
+#     bg_mean_g = np.mean(bg_pixels[:, 1])
+#     bg_mean_b = np.mean(bg_pixels[:, 2])
     
-    # Normalized differences (mask - background)
-    norm_features['norm_diff_R'] = mask_mean_r - bg_mean_r
-    norm_features['norm_diff_G'] = mask_mean_g - bg_mean_g
-    norm_features['norm_diff_B'] = mask_mean_b - bg_mean_b
+#     # Normalized differences (mask - background)
+#     norm_features['norm_diff_R'] = mask_mean_r - bg_mean_r
+#     norm_features['norm_diff_G'] = mask_mean_g - bg_mean_g
+#     norm_features['norm_diff_B'] = mask_mean_b - bg_mean_b
     
-    # Ratios (mask / background)
-    norm_features['norm_ratio_R'] = mask_mean_r / (bg_mean_r + 1e-6)
-    norm_features['norm_ratio_G'] = mask_mean_g / (bg_mean_g + 1e-6)
-    norm_features['norm_ratio_B'] = mask_mean_b / (bg_mean_b + 1e-6)
+#     # Ratios (mask / background)
+#     norm_features['norm_ratio_R'] = mask_mean_r / (bg_mean_r + 1e-6)
+#     norm_features['norm_ratio_G'] = mask_mean_g / (bg_mean_g + 1e-6)
+#     norm_features['norm_ratio_B'] = mask_mean_b / (bg_mean_b + 1e-6)
     
-    # Derived normalized features
-    mask_total = mask_mean_r + mask_mean_g + mask_mean_b
-    bg_total = bg_mean_r + bg_mean_g + bg_mean_b
+#     # Derived normalized features
+#     mask_total = mask_mean_r + mask_mean_g + mask_mean_b
+#     bg_total = bg_mean_r + bg_mean_g + bg_mean_b
     
-    if mask_total > 0 and bg_total > 0:
-        norm_features['norm_rg_diff'] = (mask_mean_r - mask_mean_g) - (bg_mean_r - bg_mean_g)
-        norm_features['norm_rb_diff'] = (mask_mean_r - mask_mean_b) - (bg_mean_r - bg_mean_b)
-        norm_features['norm_gb_diff'] = (mask_mean_g - mask_mean_b) - (bg_mean_g - bg_mean_b)
+#     if mask_total > 0 and bg_total > 0:
+#         norm_features['norm_rg_diff'] = (mask_mean_r - mask_mean_g) - (bg_mean_r - bg_mean_g)
+#         norm_features['norm_rb_diff'] = (mask_mean_r - mask_mean_b) - (bg_mean_r - bg_mean_b)
+#         norm_features['norm_gb_diff'] = (mask_mean_g - mask_mean_b) - (bg_mean_g - bg_mean_b)
     
-    return norm_features
+#     return norm_features

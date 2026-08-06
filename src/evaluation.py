@@ -11,6 +11,9 @@ Expected JSON format:
             "filename": "IMG_1234.HEIC"
         }
     ]
+
+Expected CSV format:
+    Precomputed features CSV containing `concentration` and feature columns.
 """
 
 import glob
@@ -40,7 +43,7 @@ CONCENTRATION_BINS = [0, 0.5, 1.5, 3.0, float("inf")]
 CONCENTRATION_LABELS = ["Low", "Medium", "High", "Very High"]
 
 # Model artifacts to skip during evaluation
-SKIP_ARTIFACTS = {"scaler.pkl", "best_model.pkl"}
+SKIP_ARTIFACTS = {"scaler", "best_model"}
 
 
 def load_artifacts(artifacts_dir: str = ARTIFACTS_DIR) -> Tuple[Any, List[str]]:
@@ -120,6 +123,40 @@ def _normalize_dataset_records(dataset: List[Dict[str, Any]]) -> List[Dict[str, 
     return normalized
 
 
+def _load_dataset_records(dataset_path: str) -> List[Dict[str, Any]]:
+    """Load and normalize dataset records from JSON file path."""
+    with open(dataset_path, "r") as f:
+        dataset = json.load(f)
+    return _normalize_dataset_records(dataset)
+
+
+def _load_evaluation_dataframe(dataset_path: str) -> Tuple[pd.DataFrame, int]:
+    """Load evaluation dataframe from either feature CSV or raw JSON dataset.
+
+    Args:
+        dataset_path: Path to input file. Supports:
+            - .csv: precomputed feature table
+            - .json: raw records with image + concentration
+
+    Returns:
+        Tuple of (feature dataframe, sample count).
+    """
+    extension = os.path.splitext(dataset_path)[1].lower()
+
+    if extension == ".csv":
+        df = pd.read_csv(dataset_path)
+        return df, len(df)
+    if extension != ".json":
+        raise ValueError(
+            f"Unsupported input file type: {dataset_path}. "
+            "Use a .json dataset file or a precomputed .csv feature file."
+        )
+
+    records = _load_dataset_records(dataset_path)
+    df = process_dataset_records(records, FEATURES_CSV_PATH)
+    return df, len(records)
+
+
 def _calculate_range_metrics(group_data: pd.DataFrame, group_name: str) -> None:
     """Print evaluation metrics for a concentration range group.
     
@@ -162,13 +199,9 @@ def evaluate_dataset(dataset_path: str = DEFAULT_DATASET) -> None:
             f"Validation dataset not found at {dataset_path}. "
             "Add a phone_validation_dataset.json file to run real-world validation."
         )
-    
-    with open(dataset_path, "r") as f:
-        dataset = json.load(f)
-    
-    normalized_records = _normalize_dataset_records(dataset)
-    df = process_dataset_records(normalized_records, FEATURES_CSV_PATH)
-    
+
+    df, sample_count = _load_evaluation_dataframe(dataset_path)
+
     scaler, feature_columns = load_artifacts()
     
     X = df.reindex(columns=feature_columns, fill_value=0).values
@@ -183,7 +216,10 @@ def evaluate_dataset(dataset_path: str = DEFAULT_DATASET) -> None:
     print("=" * 50)
     
     for path in model_paths:
-        filename = os.path.basename(path)
+        name = os.path.basename(path)
+        filename, _ = os.path.splitext(name)
+        if "dataset_3" not in filename:
+          continue
         if filename in SKIP_ARTIFACTS:
             continue
         
@@ -204,7 +240,7 @@ def evaluate_dataset(dataset_path: str = DEFAULT_DATASET) -> None:
         )
         
         print(f"\nModel: {filename}")
-        print(f"Samples: {len(dataset)}")
+        print(f"Samples: {sample_count}")
         print(f"R²: {r2_score(analysis_df['actual'], analysis_df['predicted']):.4f}")
         print(f"MAE: {mean_absolute_error(analysis_df['actual'], analysis_df['predicted']):.4f}")
         print(f"RMSE: {mean_squared_error(analysis_df['actual'], analysis_df['predicted']) ** 0.5:.4f}")

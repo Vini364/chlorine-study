@@ -2,7 +2,7 @@
 End-to-end training pipeline with a more realistic phone-photo evaluation flow.
 
 Key safeguards:
-1. Split original images before augmentation.
+1. Keep holdout images in a separate dedicated dataset file.
 2. Augment only the training subset.
 3. Evaluate on untouched holdout photos.
 4. Optionally evaluate on an external phone validation dataset if provided.
@@ -51,6 +51,7 @@ MODELS_DIR = os.path.join(PROJECT_ROOT, "models")
 
 # Dataset paths
 EXTERNAL_PHONE_VALIDATION_PATH = os.path.join(PROCESSED_DATA_DIR, "phone_validation_dataset.json")
+HOLDOUT_DATASET_PATH = os.path.join(PROCESSED_DATA_DIR, "new_dataset_4.json")
 
 
 def print_section(title):
@@ -59,7 +60,7 @@ def print_section(title):
     print("=" * 70)
 
 
-def choose_input_dataset():
+def choose_training_dataset():
     candidates = [
         os.path.join(PROCESSED_DATA_DIR, "new_dataset_3.json"),
         os.path.join(PROCESSED_DATA_DIR, "new_dataset_2.json"),
@@ -70,6 +71,14 @@ def choose_input_dataset():
             return path
 
     raise FileNotFoundError("No input dataset found. Expected data/processed/new_dataset*.json")
+
+def choose_holdout_dataset():
+    if os.path.exists(HOLDOUT_DATASET_PATH):
+        return HOLDOUT_DATASET_PATH
+
+    raise FileNotFoundError(
+        "Holdout dataset not found. Expected data/processed/new_dataset_4.json"
+    )
 
 
 def load_dataset_records(path):
@@ -124,8 +133,8 @@ def split_original_records(records, test_size=0.2, random_state=42):
     holdout_records = [records[index] for index in holdout_idx]
     return train_records, holdout_records
 
-
-def augment_training_records(records, base_aug = 2, max_aug = 3, scale = 3.0):
+#Augment_training_records function has parameters base_aug and max_aug in the case of the dataset being skewed in terms of distribution of concentrations.
+def augment_training_records(records, base_aug = 2, max_aug = 2, scale = 3.0):
     os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
     
     with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "w") as f:
@@ -173,7 +182,7 @@ def evaluate_predictions(y_true, y_pred):
         "mae": float(mean_absolute_error(y_true, y_pred)),
     }
 
-
+#Classification for overfitting gap might be biased towards linear models, as it was taken from the previous codebase(Aiman and Sanskriti's)
 def classify_overfit_gap(train_metrics, holdout_metrics):
     r2_gap = train_metrics["r2"] - holdout_metrics["r2"]
     rmse_ratio = holdout_metrics["rmse"] / max(train_metrics["rmse"], 1e-9)
@@ -274,6 +283,11 @@ def train_candidates(
     feature_columns,
     random_state=42,
 ):
+    """ 
+    Trains each model and evaluates it.
+        - Handles RandomisedSearchCV and GridSearchCV for tree and linear models respectively. 
+        - Moreover, it also saves the models weights as 'pkl' with the names being edited as per convenience.
+    """
     group_count = len(np.unique(train_groups))
     cv_splits = max(3, min(5, group_count))
     cv = GroupKFold(n_splits=cv_splits)
@@ -311,21 +325,13 @@ def train_candidates(
                 refit=True,
             )
 
-        # search = GridSearchCV(
-        #     estimator=pipeline,
-        #     param_grid={f"model__{key}": value for key, value in param_grid.items()},
-        #     scoring="r2",
-        #     cv=cv,
-        #     n_jobs=1,
-        #     refit=True,
-        # )
         search.fit(X_train, y_train, groups=train_groups)
-        # feature_importance = permutation_importance(search.best_estimator_, X_holdout, y_holdout, n_repeats = 5, random_state = 42)
-        # importance_df = pd.DataFrame({
-        #     'Feature': feature_columns,
-        #     'Importance_Mean': feature_importance.importances_mean,
-        #     'Importance_Std': feature_importance.importances_std
-        # }).sort_values(by='Importance_Mean', ascending=False)
+        feature_importance = permutation_importance(search.best_estimator_, X_holdout, y_holdout, n_repeats = 5, random_state = 42)
+        importance_df = pd.DataFrame({
+            'Feature': feature_columns,
+            'Importance_Mean': feature_importance.importances_mean,
+            'Importance_Std': feature_importance.importances_std
+        }).sort_values(by='Importance_Mean', ascending=False)
 
         train_original_predictions = search.best_estimator_.predict(X_train_original)
         train_original_metrics = evaluate_predictions(y_train_original, train_original_predictions)
@@ -333,10 +339,7 @@ def train_candidates(
         holdout_metrics = evaluate_predictions(y_holdout, holdout_predictions)
         gap_summary = compute_gap_summary(train_original_metrics, holdout_metrics)
         overfit_severity = classify_overfit_gap(train_original_metrics, holdout_metrics)
-
-        # for idx, row in importance_df.head(5).iterrows():
-        #     print(f"{row['Feature']} : {row['Importance_Mean']:.4f}")
-
+    
         print(f"  Best params: {search.best_params_}")
         print(f"  CV R²: {search.best_score_:.4f}")
         print(f"  Train-original R²: {train_original_metrics['r2']:.4f}")
@@ -356,6 +359,7 @@ def train_candidates(
             "holdout_metrics": holdout_metrics,
             "gap_summary": gap_summary,
             "overfit_severity": overfit_severity,
+            "importance_df": importance_df,
         })
 
     severity_rank = {"mild": 0, "moderate": 1, "severe": 2}
@@ -374,56 +378,55 @@ def train_candidates(
         joblib.dump(raw_model, os.path.join(ARTIFACTS_DIR, f"dataset_3_{candidate['model_name'].lower().replace(' ', '_')}.pkl"))
     return results
 
+def aggregate_feature_importance(candidate_results, bottom_n=5):
+    """
+    Combines per-model permutation importance into a single view:
+      - avg_rank: average rank across models (1 = most important). Lower avg_rank = more useless.
+      - bottom_n_votes: how many models had this feature in their bottom-N.
+      - negative_votes: how many models had negative importance for this feature.
+      - mean_importance: average raw Importance_Mean across models (informal, unnormalized).
+    """
+    rows = []
+    for result in candidate_results:
+        importance_df = result["importance_df"].copy()
+        importance_df = importance_df.sort_values("Importance_Mean", ascending=False).reset_index(drop=True)
+        importance_df["rank"] = importance_df.index + 1  # 1 = most important
+        importance_df["model_name"] = result["model_name"]
+        importance_df["in_bottom_n"] = importance_df["rank"] > (len(importance_df) - bottom_n)
+        rows.append(importance_df[["Feature", "Importance_Mean", "rank", "model_name", "in_bottom_n"]])
 
-def evaluate_external_phone_validation(best_estimator, feature_columns):
-    if not os.path.exists(EXTERNAL_PHONE_VALIDATION_PATH):
-        print("\nNo external phone validation dataset found. Skipping that step.")
-        return None
+    combined = pd.concat(rows, ignore_index=True)
 
-    print("\nEvaluating on external phone validation dataset...")
-    phone_records = load_dataset_records(EXTERNAL_PHONE_VALIDATION_PATH)
-    phone_df = process_dataset_records(phone_records)
+    summary = combined.groupby("Feature").agg(
+        avg_rank=("rank", "mean"),
+        mean_importance=("Importance_Mean", "mean"),
+        bottom_n_votes=("in_bottom_n", "sum"),
+        negative_votes=("Importance_Mean", lambda x: (x < 0).sum()),
+        n_models=("model_name", "nunique"),
+    ).reset_index()
 
-    X_phone = phone_df.reindex(columns=feature_columns, fill_value=0).values
-    y_phone = phone_df["concentration"].values
-    predictions = best_estimator.predict(X_phone)
+    summary = summary.sort_values(["avg_rank"], ascending=False)
+    return summary
 
-    metrics = evaluate_predictions(y_phone, predictions)
-    metrics["samples"] = int(len(y_phone))
-
-    print(f"  External phone R²: {metrics['r2']:.4f}")
-    print(f"  External phone RMSE: {metrics['rmse']:.4f}")
-    print(f"  External phone MAE: {metrics['mae']:.4f}")
-
-    return metrics
-
-
-
+# Notice how the holdout_input_file is separate, and the train_input_file is training on the entire dataset, this was to see cross generalization, however you can ofcourse include 80/20 split train_test.
 def run_pipeline(augmentations_per_image=2, random_state=42):
     print_section("CHLORINE CONCENTRATION PREDICTION PIPELINE")
 
-    input_file = choose_input_dataset()
-    print(f"Using input file: {input_file}")
+    train_input_file = choose_training_dataset()
+    holdout_input_file = choose_holdout_dataset()
+    print(f"Using training input file: {train_input_file}")
+    print(f"Using holdout input file: {holdout_input_file}")
 
-    print_section("STEP 1: SPLIT ORIGINAL PHONE PHOTOS BEFORE AUGMENTATION")
-    original_records = load_dataset_records(input_file)
-    train_originals, holdout_originals = split_original_records(
-        original_records,
-        test_size=0.2,
-        random_state=random_state,
-    )
-    y_all = np.array([r["concentration"] for r in original_records], dtype=float)
-    log_split_bin_coverage(original_records, y_all)
+    print_section("STEP 1: LOAD TRAINING/HOLDOUT ORIGINAL PHONE PHOTO DATASETS")
+    train_originals = load_dataset_records(train_input_file)
+    holdout_originals = load_dataset_records(holdout_input_file)
+    y_train_all = np.array([r["concentration"] for r in train_originals], dtype=float)
+    y_holdout_all = np.array([r["concentration"] for r in holdout_originals], dtype=float)
+    print("Training dataset concentration coverage:")
+    log_split_bin_coverage(train_originals, y_train_all)
+    print("Holdout dataset concentration coverage:")
+    log_split_bin_coverage(holdout_originals, y_holdout_all)
 
-
-    # counts = Counter(record["concentration"] for record in original_records)
-
-    # for conc, count in sorted(counts.items()):
-    #     print(conc, count)
-    # source_counts = Counter(r["source_id"] for r in train_originals if r["concentration"] >= 1.5)
-    # print(f"Unique high-conc sources: {len(source_counts)}")
-
-    print(f"Original images: {len(original_records)}")
     print(f"Training originals: {len(train_originals)}")
     print(f"Untouched holdout originals: {len(holdout_originals)}")
 
@@ -435,17 +438,22 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     print(f"Training records after augmentation: {len(train_records)}")
 
     os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
-    # with open(os.path.join(PROCESSED_DATA_DIR, "augmented_image_data.json"), "w") as f:
-    #     json.dump(train_records, f)
     with open(os.path.join(PROCESSED_DATA_DIR, "phone_holdout_dataset.json"), "w") as f:
         json.dump(holdout_originals, f)
 
     print_section("STEP 3: FEATURE EXTRACTION")
     train_df = process_dataset_records(
-        train_records,
-        output_csv=os.path.join(FEATURES_DIR, "features_data.csv"),
+    train_records,
+    output_csv=os.path.join(FEATURES_DIR, "features_data.csv"),
+    namespace=os.path.basename(train_input_file),
     )
-    holdout_df = process_dataset_records(holdout_originals)
+    holdout_df = process_dataset_records(
+        holdout_originals,
+        namespace=os.path.basename(holdout_input_file),
+    )
+    train_cols = set(train_df.columns)
+    holdout_cols = set(holdout_df.columns)
+    assert train_cols == holdout_cols, f"Feature mismatch: {train_cols - holdout_cols}"
 
     feature_columns = [
         column for column in train_df.columns
@@ -493,6 +501,8 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     print(f"  Holdout RMSE: {best_result['holdout_metrics']['rmse']:.4f}")
     print(f"  Holdout MAE: {best_result['holdout_metrics']['mae']:.4f}")
 
+    
+
     print_section("STEP 5: EVALUATE ON UNTOUCHED HOLDOUT ORIGINALS")
     # Evaluate the chosen pipeline estimator directly on the untouched holdout originals
     try:
@@ -516,10 +526,8 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     except Exception as exc:
         print("Holdout evaluation failed:", exc)
 
-    print_section("STEP 6: OPTIONAL EXTERNAL PHONE VALIDATION")
-    external_phone_metrics = evaluate_external_phone_validation(best_estimator, feature_columns)
 
-    print_section("STEP 7: SAVE ARTIFACTS")
+    print_section("STEP 6: SAVE ARTIFACTS")
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     joblib.dump(best_model, os.path.join(ARTIFACTS_DIR, "best_model.pkl"))
     joblib.dump(best_scaler, os.path.join(ARTIFACTS_DIR, "scaler.pkl"))
@@ -531,7 +539,9 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
         "model_name": best_result["model_name"],
         "best_params": best_result["best_params"],
         "augmentations_per_image": augmentations_per_image,
-        "split_strategy": "Split original phone photos before augmentation",
+        "split_strategy": "Use dedicated holdout dataset (new_dataset_4.json)",
+        "training_dataset": os.path.basename(train_input_file),
+        "holdout_dataset": os.path.basename(holdout_input_file),
         "training_original_samples": len(train_originals),
         "training_samples_with_augmentation": len(train_records),
         "holdout_original_samples": len(holdout_originals),
@@ -550,9 +560,6 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
         "target": "chlorine concentration",
         "unit": "mg/L",
     }
-
-    if external_phone_metrics is not None:
-        metadata["external_phone_validation"] = external_phone_metrics
 
     with open(os.path.join(ARTIFACTS_DIR, "model_metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
@@ -578,7 +585,11 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     print(f"  - {os.path.join(ARTIFACTS_DIR, 'feature_columns.json')}")
     print(f"  - {os.path.join(ARTIFACTS_DIR, 'model_metadata.json')}")
     print(f"  - {os.path.join(ARTIFACTS_DIR, 'candidate_results.json')}")
+    print("*********************************************************************"
 
+        )
+    feature_summary = aggregate_feature_importance(candidate_results, bottom_n=5)
+    print(feature_summary.head(10))
     print_section("PIPELINE COMPLETED SUCCESSFULLY")
     return True
 

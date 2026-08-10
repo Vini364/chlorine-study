@@ -25,10 +25,13 @@ import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor, ExtraTreesRegressor
 from sklearn.svm import SVR
 from xgboost import XGBRegressor
-# from lightgbm import LGBMRegressor
 from sklearn.linear_model import ElasticNet, Lasso, Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from sklearn.model_selection import GridSearchCV, GroupKFold, train_test_split
+from sklearn.model_selection import (
+    GridSearchCV,
+    GroupKFold,
+    GroupShuffleSplit,
+)
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
@@ -121,21 +124,29 @@ def log_split_bin_coverage(records, y, max_bins=5):
 
 
 def split_original_records(records, test_size=0.2, random_state=42):
-    y = np.array([record["concentration"] for record in records], dtype=float)
-    # stratify_labels = make_stratify_labels(y)
     indices = np.arange(len(records))
 
-    stratify_label = list((record["model"] for record in records))
+    groups = np.array([
+        record["source_id"]
+        for record in records
+    ])
 
-    train_idx, holdout_idx = train_test_split(
-        indices,
+    splitter = GroupShuffleSplit(
+        n_splits=1,
         test_size=test_size,
-        random_state=random_state,
-        stratify=stratify_label,
+        random_state=random_state
+    )
+
+    train_idx, holdout_idx = next(
+        splitter.split(
+            indices,
+            groups=groups
+        )
     )
 
     train_records = [records[index] for index in train_idx]
     holdout_records = [records[index] for index in holdout_idx]
+
     return train_records, holdout_records
 
 #Augment_training_records function has parameters base_aug and max_aug in the case of the dataset being skewed in terms of distribution of concentrations.
@@ -423,8 +434,12 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     # print(f"Using holdout input file: {holdout_input_file}")
 
     print_section("STEP 1: LOAD TRAINING/HOLDOUT ORIGINAL PHONE PHOTO DATASETS")
-    records = load_dataset_records(os.path.join(PROCESSED_DATA_DIR, "new_dataset_5.json"))
+    records = load_dataset_records(os.path.join(PROCESSED_DATA_DIR, "new_dataset.json"))
     train_originals, holdout_originals = split_original_records(records, test_size=0.2, random_state=random_state)
+    train_ids = set(r["source_id"] for r in train_originals)
+    holdout_ids = set(r["source_id"] for r in holdout_originals)
+
+    print("OVERLAPPING SOURCE IDs:", train_ids & holdout_ids)
     # train_originals = load_dataset_records(train_input_file)
     # holdout_originals = load_dataset_records(holdout_input_file)
     y_train_all = np.array([r["concentration"] for r in train_originals], dtype=float)

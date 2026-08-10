@@ -20,3 +20,4 @@ albumentations>=2.0.8
 setuptools>=61,<82
 exifread>=3.5.1
 rawpy>=0.27.0
+tqdm>=4.70.0

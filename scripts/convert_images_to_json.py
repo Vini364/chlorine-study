@@ -17,13 +17,13 @@ Folder structure:
 Output: JSON file with base64-encoded images and concentration labels
 """
 
-import os
 import json
-import base64
 import sys
 from pathlib import Path
 from typing import List, Dict, Tuple
 from scripts.device_tag import model_from_exif
+from scripts.add_sample_id import source_id_extractor
+from scripts.image_utils import get_image_files
 
 # Register HEIC format with PIL
 try:
@@ -32,17 +32,6 @@ try:
 except ImportError:
     print("Warning: pillow-heif not installed. HEIC files will not be supported.")
     print("Install with: pip install pillow-heif")
-
-# Supported image formats (including HEIC from Apple devices)
-SUPPORTED_FORMATS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.heic', '.heif', '.dng', '.tiff'}
-
-def get_image_files(directory: Path) -> List[Path]:
-    """Get all image files from a directory"""
-    images = []
-    for file in directory.iterdir():
-        if file.is_file() and file.suffix.lower() in SUPPORTED_FORMATS:
-            images.append(file)
-    return sorted(images)
 
 
 def convert_folders_to_json(root_dir: str, output_file: str = "training/new_dataset.json") -> Tuple[bool, str]:
@@ -105,7 +94,8 @@ def convert_folders_to_json(root_dir: str, output_file: str = "training/new_data
                     "image": str(image_path.resolve()), # Store the absolute path instead of base64 for now
                     "concentration": concentration,
                     "filename": image_path.name,
-                    "model": model_from_exif(str(image_path.resolve()))
+                    "model": model_from_exif(str(image_path.resolve())),
+                    "source_id": source_id_extractor(image_path)
                 })
                 total_images += 1
             except Exception as e:

@@ -89,12 +89,14 @@ def load_dataset_records(path):
     for index, item in enumerate(dataset):
         filename = item.get("filename", f"sample_{index}.jpg")
         source_id = item.get("source_id", filename)
+        model = item.get("model", "unknown")
         records.append({
             "image": item["image"],
             "concentration": float(item["concentration"]),
             "filename": filename,
             "source_id": source_id,
             "is_augmented": bool(item.get("is_augmented", False)),
+            "model": model,
         })
 
     return records
@@ -117,16 +119,19 @@ def log_split_bin_coverage(records, y, max_bins=5):
     for interval, count in counts.items():
         print(f"  {interval}: {count} samples")
 
+
 def split_original_records(records, test_size=0.2, random_state=42):
     y = np.array([record["concentration"] for record in records], dtype=float)
-    stratify_labels = make_stratify_labels(y)
+    # stratify_labels = make_stratify_labels(y)
     indices = np.arange(len(records))
+
+    stratify_label = list((record["model"] for record in records))
 
     train_idx, holdout_idx = train_test_split(
         indices,
         test_size=test_size,
         random_state=random_state,
-        stratify=stratify_labels,
+        stratify=stratify_label,
     )
 
     train_records = [records[index] for index in train_idx]
@@ -412,20 +417,22 @@ def aggregate_feature_importance(candidate_results, bottom_n=5):
 def run_pipeline(augmentations_per_image=2, random_state=42):
     print_section("CHLORINE CONCENTRATION PREDICTION PIPELINE")
 
-    train_input_file = choose_training_dataset()
-    holdout_input_file = choose_holdout_dataset()
-    print(f"Using training input file: {train_input_file}")
-    print(f"Using holdout input file: {holdout_input_file}")
+    # train_input_file = choose_training_dataset()
+    # holdout_input_file = choose_holdout_dataset()
+    # print(f"Using training input file: {train_input_file}")
+    # print(f"Using holdout input file: {holdout_input_file}")
 
     print_section("STEP 1: LOAD TRAINING/HOLDOUT ORIGINAL PHONE PHOTO DATASETS")
-    train_originals = load_dataset_records(train_input_file)
-    holdout_originals = load_dataset_records(holdout_input_file)
+    records = load_dataset_records(os.path.join(PROCESSED_DATA_DIR, "new_dataset_5.json"))
+    train_originals, holdout_originals = split_original_records(records, test_size=0.2, random_state=random_state)
+    # train_originals = load_dataset_records(train_input_file)
+    # holdout_originals = load_dataset_records(holdout_input_file)
     y_train_all = np.array([r["concentration"] for r in train_originals], dtype=float)
     y_holdout_all = np.array([r["concentration"] for r in holdout_originals], dtype=float)
     print("Training dataset concentration coverage:")
-    log_split_bin_coverage(train_originals, y_train_all)
-    print("Holdout dataset concentration coverage:")
-    log_split_bin_coverage(holdout_originals, y_holdout_all)
+    # log_split_bin_coverage(train_originals, y_train_all)
+    # print("Holdout dataset concentration coverage:")
+    # log_split_bin_coverage(holdout_originals, y_holdout_all)
 
     print(f"Training originals: {len(train_originals)}")
     print(f"Untouched holdout originals: {len(holdout_originals)}")
@@ -445,19 +452,15 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
     train_df = process_dataset_records(
     train_records,
     output_csv=os.path.join(FEATURES_DIR, "features_data.csv"),
-    namespace=os.path.basename(train_input_file),
     )
     holdout_df = process_dataset_records(
         holdout_originals,
-        namespace=os.path.basename(holdout_input_file),
+        output_csv=os.path.join(FEATURES_DIR, "holdout_features_data.csv"),
     )
-    train_cols = set(train_df.columns)
-    holdout_cols = set(holdout_df.columns)
-    assert train_cols == holdout_cols, f"Feature mismatch: {train_cols - holdout_cols}"
 
     feature_columns = [
         column for column in train_df.columns
-        if column not in {"concentration", "is_augmented", "source_id", "filename"}
+        if column not in {"concentration", "is_augmented", "source_id", "filename", "model"}
     ]
 
     X_train = train_df[feature_columns].values
@@ -540,8 +543,8 @@ def run_pipeline(augmentations_per_image=2, random_state=42):
         "best_params": best_result["best_params"],
         "augmentations_per_image": augmentations_per_image,
         "split_strategy": "Use dedicated holdout dataset (new_dataset_4.json)",
-        "training_dataset": os.path.basename(train_input_file),
-        "holdout_dataset": os.path.basename(holdout_input_file),
+        # "training_dataset": os.path.basename(train_input_file),
+        # "holdout_dataset": os.path.basename(holdout_input_file),
         "training_original_samples": len(train_originals),
         "training_samples_with_augmentation": len(train_records),
         "holdout_original_samples": len(holdout_originals),

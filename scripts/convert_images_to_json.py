@@ -23,6 +23,7 @@ import base64
 import sys
 from pathlib import Path
 from typing import List, Dict, Tuple
+from scripts.device_tag import model_from_exif
 
 # Register HEIC format with PIL
 try:
@@ -42,30 +43,6 @@ def get_image_files(directory: Path) -> List[Path]:
         if file.is_file() and file.suffix.lower() in SUPPORTED_FORMATS:
             images.append(file)
     return sorted(images)
-
-# def encode_image_to_base64(image_path: Path) -> str:
-#     """Encode image file to base64 string, converting HEIC to JPEG if needed"""
-#     file_ext = image_path.suffix.lower()
-
-#     # If HEIC format, convert to JPEG
-#     if file_ext in {'.heic', '.heif'}:
-#         try:
-#             from PIL import Image
-#             # Open HEIC image (pillow-heif must be registered)
-#             img = Image.open(image_path).convert('RGB')
-#             # Encode to JPEG
-#             import io
-#             buffer = io.BytesIO()
-#             img.save(buffer, format='JPEG', quality=95)
-#             image_data = buffer.getvalue()
-#         except Exception as e:
-#             raise ValueError(f"Failed to convert HEIC image {image_path.name}: {str(e)}")
-#     else:
-#         # Read image file directly
-#         with open(image_path, 'rb') as f:
-#             image_data = f.read()
-
-    # return base64.b64encode(image_data).decode('utf-8')
 
 
 def convert_folders_to_json(root_dir: str, output_file: str = "training/new_dataset.json") -> Tuple[bool, str]:
@@ -127,7 +104,8 @@ def convert_folders_to_json(root_dir: str, output_file: str = "training/new_data
                 dataset.append({
                     "image": str(image_path.resolve()), # Store the absolute path instead of base64 for now
                     "concentration": concentration,
-                    "filename": image_path.name
+                    "filename": image_path.name,
+                    "model": model_from_exif(str(image_path.resolve()))
                 })
                 total_images += 1
             except Exception as e:
@@ -183,12 +161,12 @@ def main():
         print(f"\n{message}")
         print("\nNext steps:")
         print("  1. Run the training pipeline:")
-        print("     python -m training.run_full_pipeline")
+        print("     python -m training.pipeline")
         print("  2. The pipeline will:")
         print("     - Augment the images")
         print("     - Extract 36 features per image")
-        print("     - Train Ridge & Lasso models")
-        print("     - Save best model to training/saved_artifacts/")
+        print("     - Train Linear and Ensemble models")
+        print("     - Save model weights to models/saved_artifacts/")
     else:
         print(f"\n✗ Conversion failed: {message}")
         sys.exit(1)

@@ -387,8 +387,6 @@ def extract_features(rgb_uint8, results):
     # Add background-normalized features
     # features.update(compute_bg_normalized_features(rgb_uint8, binary_mask))
 
-    # features.update(extract_haralick_features(rgb_uint8))
-
     if results.masks is not None and len(results.boxes) > 0:
         box = results.boxes.data[0].cpu().numpy()
         x1, y1, x2, y2 = map(int, box[:4])
@@ -425,6 +423,7 @@ def process_dataset_records(data, output_csv=None, namespace="default", cache_fl
             cached['source_id'] = item.get('source_id')
             cached['filename'] = item.get('filename')
             cached['is_augmented'] = False
+            cached['model'] = item.get('model', 'unknown')
             rows.append(cached)
         else:
             to_extract.append(item)
@@ -438,6 +437,7 @@ def process_dataset_records(data, output_csv=None, namespace="default", cache_fl
             features = extract_features(rgb_uint8, result)
             features['concentration'] = float(item['concentration'])
             features['is_augmented'] = item.get('is_augmented', False)
+            features['model'] = item.get('model', 'unknown')
             features['source_id'] = item.get('source_id')
             features['filename'] = item.get('filename')
             rows.append(features)

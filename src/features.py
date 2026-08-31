@@ -22,29 +22,7 @@ YOLO_MODEL_PATH = os.path.join(PROJECT_ROOT, "models", "roi_with_augmentation.pt
 yolo_model = YOLO(YOLO_MODEL_PATH)
 IMAGES_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "new_dataset_4.json")
 BATCH_SIZE = 16
-# output_dir = "extracted_rois"
-# os.makedirs(output_dir, exist_ok=True)
-import hashlib
 
-FEATURE_CACHE_PATH = os.path.join(PROJECT_ROOT, "data", "features", "feature_cache.json")
-
-CACHE_VERSION = "v1"  # bump this any time extract_features() logic changes,
-                       # to invalidate all old cache entries automatically
-
-def _image_content_hash(image_input):
-    """Hash based on actual image bytes, not filename — identical filenames
-    from different datasets never collide, and a changed/replaced image
-    under the same filename gets a fresh key automatically."""
-    if is_file_path(image_input):
-        path = _resolve_image_path(image_input)
-        with open(path, "rb") as f:
-            data = f.read()
-    else:
-        data = image_input.encode("utf-8") if isinstance(image_input, str) else image_input
-    return hashlib.sha1(data).hexdigest()
-
-def cache_key(item, namespace):
-    return f"{CACHE_VERSION}:{namespace}:{_image_content_hash(item['image'])}"
 
 def _resolve_image_path(image_path):
     """Resolve image paths robustly across moved repository locations."""
@@ -72,15 +50,6 @@ def _resolve_image_path(image_path):
         f"Tried: {candidate}"
     )
 
-def load_feature_cache():
-    if os.path.exists(FEATURE_CACHE_PATH):
-        try:
-            with open(FEATURE_CACHE_PATH, "r") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            print(f"Warning: {FEATURE_CACHE_PATH} is corrupt/unreadable — starting with an empty cache.")
-            return {}
-    return {}
 
 def _json_default(o):
     if isinstance(o, (np.floating,)):
@@ -90,13 +59,6 @@ def _json_default(o):
     if isinstance(o, np.ndarray):
         return o.tolist()
     raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
-
-def save_feature_cache(cache):
-    os.makedirs(os.path.dirname(FEATURE_CACHE_PATH), exist_ok=True)
-    tmp_path = FEATURE_CACHE_PATH + ".tmp"
-    with open(tmp_path, "w") as f:
-        json.dump(cache, f, default=_json_default)
-    os.replace(tmp_path, FEATURE_CACHE_PATH)  # atomic on POSIX and Windows
 
 
 # --------------------------
@@ -353,15 +315,6 @@ def extract_features(rgb_uint8, results):
     features['diff_R_B'] = features['mean_R']-features['mean_B']
     features['diff_G_B'] = features['mean_G']-features['mean_B']
 
-    # hsv = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2HSV)
-    # features['mean_H'], features['mean_S'], features['mean_V'] = np.mean(hsv[:,:,0]), np.mean(hsv[:,:,1]), np.mean(hsv[:,:,2])
-    # features['std_H'], features['std_S'], features['std_V'] = np.std(hsv[:,:,0]), np.std(hsv[:,:,1]), np.std(hsv[:,:,2])
-
-    # lab = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2LAB)
-    # features['mean_L'], features['mean_A'], features['mean_B_lab'] = np.mean(lab[:,:,0]), np.mean(lab[:,:,1]), np.mean(lab[:,:,2])
-    # features['std_L'], features['std_A'], features['std_B_lab'] = np.std(lab[:,:,0]), np.std(lab[:,:,1]), np.std(lab[:,:,2])
-    
-    #For the neural net way:
     hsv_full = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2HSV)
     lab_full = cv2.cvtColor(rgb_uint8, cv2.COLOR_RGB2LAB)
         
@@ -384,17 +337,10 @@ def extract_features(rgb_uint8, results):
     )
     features['dominant_channel'] = int(np.argmax([features['mean_R'], features['mean_G'], features['mean_B']]))
 
-    # Add background-normalized features
-    # features.update(compute_bg_normalized_features(rgb_uint8, binary_mask))
-
     if results.masks is not None and len(results.boxes) > 0:
         box = results.boxes.data[0].cpu().numpy()
         x1, y1, x2, y2 = map(int, box[:4])
         roi_crop = rgb_uint8[y1:y2, x1:x2]
-        # if filename:
-        #     roi_bgr = cv2.cvtColor(roi_crop, cv2.COLOR_RGB2BGR)
-        #     save_name = f"roi_{os.path.splitext(filename)[0]}.jpg"
-        #     cv2.imwrite(os.path.join(output_dir, save_name), roi_bgr)
         features.update(extract_haralick_features(roi_crop))
     else:
         # Emergency backup if YOLO misses
@@ -411,24 +357,10 @@ def yolo_batch(rgb_images):
 # --------------------------
 def process_dataset_records(data, output_csv=None, namespace="default", cache_flush_every=5):
     print(f"Loaded {len(data)} images. Extracting features...")
-    cache = load_feature_cache()
     rows = []
     to_extract = []
     for item in data:
-        key = cache_key(item, namespace)
-        if not item.get("is_augmented", False) and key in cache:
-            cached = dict(cache[key])  # copy so we don't mutate the cache entry
-            # Never trust a stale label — always re-stamp from the current item
-            cached['concentration'] = float(item['concentration'])
-            cached['source_id'] = item.get('source_id')
-            cached['filename'] = item.get('filename')
-            cached['is_augmented'] = False
-            cached['model'] = item.get('model', 'unknown')
-            rows.append(cached)
-        else:
-            to_extract.append(item)
-
-    print(f"Reused {len(rows)} cached, extracting {len(to_extract)} fresh")
+        to_extract.append(item)
     for batch_start in range(0, len(to_extract), BATCH_SIZE):
         batch_items = to_extract[batch_start:batch_start+BATCH_SIZE]
         decoded = [decode_image(item['image']) for item in batch_items]
@@ -441,17 +373,12 @@ def process_dataset_records(data, output_csv=None, namespace="default", cache_fl
             features['source_id'] = item.get('source_id')
             features['filename'] = item.get('filename')
             rows.append(features)
-            if not item.get("is_augmented", False):
-                cache[cache_key(item, namespace)] = features
             item['image'] = None
 
         batch_num = batch_start // BATCH_SIZE + 1
         if batch_num % cache_flush_every == 0:
             print(f"Processed {batch_start + len(batch_items)}/{len(data)} images")
-            save_feature_cache(cache)   # periodic flush so a crash doesn't lose everything
             gc.collect()
-
-    save_feature_cache(cache)  # final flush
 
     df = pd.DataFrame(rows)
     if output_csv:
@@ -472,53 +399,3 @@ def process_augmented_data(input_json, output_csv):
 # --------------------------
 if __name__ == "__main__":
     process_augmented_data("AimanSanskritiData.json", "features_data.csv")
-
-# def compute_bg_normalized_features(rgb_uint8, binary_mask):
-#     """
-#     Compute background-normalized features by comparing mask region vs background region.
-#     Returns a dict of normalized RGB and derived color features.
-#     """
-#     norm_features = {}
-    
-#     # Get mask region pixels
-#     mask_pixels = rgb_uint8[binary_mask == 1].astype(np.float32)
-    
-#     if len(mask_pixels) == 0:
-#         return norm_features
-    
-#     # Get background region (inverted mask)
-#     bg_mask = (binary_mask == 0).astype(np.uint8)
-#     bg_pixels = rgb_uint8[bg_mask == 1].astype(np.float32)
-    
-#     if len(bg_pixels) == 0:
-#         return norm_features
-    
-#     # Compute mean RGB for mask and background
-#     mask_mean_r = np.mean(mask_pixels[:, 0])
-#     mask_mean_g = np.mean(mask_pixels[:, 1])
-#     mask_mean_b = np.mean(mask_pixels[:, 2])
-    
-#     bg_mean_r = np.mean(bg_pixels[:, 0])
-#     bg_mean_g = np.mean(bg_pixels[:, 1])
-#     bg_mean_b = np.mean(bg_pixels[:, 2])
-    
-#     # Normalized differences (mask - background)
-#     norm_features['norm_diff_R'] = mask_mean_r - bg_mean_r
-#     norm_features['norm_diff_G'] = mask_mean_g - bg_mean_g
-#     norm_features['norm_diff_B'] = mask_mean_b - bg_mean_b
-    
-#     # Ratios (mask / background)
-#     norm_features['norm_ratio_R'] = mask_mean_r / (bg_mean_r + 1e-6)
-#     norm_features['norm_ratio_G'] = mask_mean_g / (bg_mean_g + 1e-6)
-#     norm_features['norm_ratio_B'] = mask_mean_b / (bg_mean_b + 1e-6)
-    
-#     # Derived normalized features
-#     mask_total = mask_mean_r + mask_mean_g + mask_mean_b
-#     bg_total = bg_mean_r + bg_mean_g + bg_mean_b
-    
-#     if mask_total > 0 and bg_total > 0:
-#         norm_features['norm_rg_diff'] = (mask_mean_r - mask_mean_g) - (bg_mean_r - bg_mean_g)
-#         norm_features['norm_rb_diff'] = (mask_mean_r - mask_mean_b) - (bg_mean_r - bg_mean_b)
-#         norm_features['norm_gb_diff'] = (mask_mean_g - mask_mean_b) - (bg_mean_g - bg_mean_b)
-    
-#     return norm_features

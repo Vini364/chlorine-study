@@ -239,24 +239,24 @@ def get_model_search_space(random_state=42):
             },
             "grid",
         ),
-        "Random Forest Regression": (
-            RandomForestRegressor(random_state=random_state),
-            {
-                "n_estimators": randint(100, 600),
-                "max_depth": [None, 4, 6, 8, 10, 14],
-                "min_samples_leaf": randint(1, 8),
-            },
-            "random",
-        ),
-        "Gradient Boosting Regression": (
-            GradientBoostingRegressor(random_state=random_state),
-            {
-                "n_estimators": randint(80, 300),
-                "learning_rate": uniform(0.01, 0.19),  # 0.01 to 0.20
-                "max_depth": randint(2, 5),
-            },
-            "random",
-        ),
+        # "Random Forest Regression": (
+        #     RandomForestRegressor(random_state=random_state),
+        #     {
+        #         "n_estimators": randint(100, 600),
+        #         "max_depth": [None, 4, 6, 8, 10, 14],
+        #         "min_samples_leaf": randint(1, 8),
+        #     },
+        #     "random",
+        # ),
+        # "Gradient Boosting Regression": (
+        #     GradientBoostingRegressor(random_state=random_state),
+        #     {
+        #         "n_estimators": randint(80, 300),
+        #         "learning_rate": uniform(0.01, 0.19),  # 0.01 to 0.20
+        #         "max_depth": randint(2, 5),
+        #     },
+        #     "random",
+        # ),
         "SVR": (
             SVR(),
             {
@@ -266,25 +266,25 @@ def get_model_search_space(random_state=42):
             },
             "grid",
         ),
-        "Extra Trees Regression": (
-            ExtraTreesRegressor(random_state=random_state),
-            {
-                "n_estimators": randint(100, 600),
-                "max_depth": [None, 4, 6, 8, 10, 14],
-                "min_samples_leaf": randint(1, 8),
-            },
-            "random",
-        ),
-        "XGBoost Regression": (
-            XGBRegressor(random_state=random_state, verbosity=0),
-            {
-                "n_estimators": randint(80, 300),
-                "learning_rate": uniform(0.01, 0.19),
-                "max_depth": randint(3, 7),
-                "subsample": uniform(0.7, 0.3),  # 0.7 to 1.0
-            },
-            "random",
-        ),
+        # "Extra Trees Regression": (
+        #     ExtraTreesRegressor(random_state=random_state),
+        #     {
+        #         "n_estimators": randint(100, 600),
+        #         "max_depth": [None, 4, 6, 8, 10, 14],
+        #         "min_samples_leaf": randint(1, 8),
+        #     },
+        #     "random",
+        # ),
+        # "XGBoost Regression": (
+        #     XGBRegressor(random_state=random_state, verbosity=0),
+        #     {
+        #         "n_estimators": randint(80, 300),
+        #         "learning_rate": uniform(0.01, 0.19),
+        #         "max_depth": randint(3, 7),
+        #         "subsample": uniform(0.7, 0.3),  # 0.7 to 1.0
+        #     },
+        #     "random",
+        # ),
     }
 
 

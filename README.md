@@ -66,6 +66,16 @@ See `STRUCTURE.md` for detailed folder and file organization.
 - `STRUCTURE.md` provides a comprehensive breakdown of the repository layout.
 - `IMPORT_FIXES_SUMMARY.md` documents import path corrections and module organization.
 
+## Dataset Workflow Idea
+
+For new datasets, start by adding a stable `sample_id` to each record so images can be tracked through the pipeline. A typical first step is:
+
+```bash
+python -m scripts.add_sample_id "dataset/path"
+```
+
+Then convert the folder of images into JSON, enrich or normalize the records as needed, and continue into downstream processing steps like feature extraction, augmentation, and evaluation.
+
 ## Notes
 
 - All Python code should run within the activated virtual environment.
